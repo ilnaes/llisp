@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 
+mod backend;
 mod expr;
 mod sexp;
 
@@ -13,8 +14,14 @@ fn main() {
     }
 
     let contents = fs::read(&args[1]).expect("Could not read file!");
-    let res = sexp::parse_sexps(contents.as_slice());
-    println!("{:?}", res);
+    let sexps = sexp::parse_sexps(contents.as_slice());
+    println!("{:?}\n\n", sexps);
 
-    println!("{:?}", expr::parse_ast(res.as_slice()));
+    let ast = expr::parse_ast(sexps.as_slice());
+    println!("{:?}\n\n", ast);
+
+    let inst = backend::asm::compile::compile(ast);
+    println!("{:?}\n\n", inst);
+
+    println!("{}", backend::asm::to_asm(inst));
 }

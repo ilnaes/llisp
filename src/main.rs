@@ -1,7 +1,7 @@
 use std::env;
 use std::fs;
 
-// mod expr;
+mod expr;
 mod sexp;
 
 fn main() {
@@ -13,6 +13,8 @@ fn main() {
     }
 
     let contents = fs::read(&args[1]).expect("Could not read file!");
-    let res = sexp::parse(contents.as_slice());
+    let res = sexp::parse_sexps(contents.as_slice());
     println!("{:?}", res);
+
+    println!("{:?}", expr::parse_ast(res.as_slice()));
 }

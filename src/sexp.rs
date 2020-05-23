@@ -1,10 +1,12 @@
+use std::str;
+
 #[derive(Debug, Clone)]
-pub enum Sexp {
-    Atom(String),
-    List(Vec<Sexp>),
+pub enum Sexp<'a> {
+    Atom(&'a str),
+    List(Vec<Sexp<'a>>),
 }
 
-pub fn parse(prog: &[u8]) -> Vec<Sexp> {
+pub fn parse_sexps<'a>(prog: &'a [u8]) -> Vec<Sexp<'a>> {
     let mut res: Vec<Sexp> = Vec::new();
     let mut i = 0;
 
@@ -17,9 +19,8 @@ pub fn parse(prog: &[u8]) -> Vec<Sexp> {
     return res;
 }
 
-fn parse_sexp(prog: &[u8], mut start: usize) -> (Sexp, usize) {
+fn parse_sexp<'a>(prog: &'a [u8], mut start: usize) -> (Sexp<'a>, usize) {
     let mut res: Vec<Sexp> = Vec::new();
-    let mut curr = Vec::new();
     let mut list = false; // indicates if we are parsing list
     let mut i = start;
 
@@ -31,7 +32,7 @@ fn parse_sexp(prog: &[u8], mut start: usize) -> (Sexp, usize) {
                 } else {
                     if !list {
                         // found ( in middle of parsing atom
-                        let s = String::from_utf8(curr).unwrap();
+                        let s = str::from_utf8(&prog[start..i]).unwrap();
                         return (Sexp::Atom(s), i);
                     }
 
@@ -47,24 +48,22 @@ fn parse_sexp(prog: &[u8], mut start: usize) -> (Sexp, usize) {
                     start += 1;
                 }
                 if !list {
-                    if curr.len() > 0 {
-                        let s = String::from_utf8(curr).unwrap();
+                    if i > start {
+                        let s = str::from_utf8(&prog[start..i]).unwrap();
                         return (Sexp::Atom(s), i);
                     }
                 }
             }
             ')' => {
                 if !list {
-                    let s = String::from_utf8(curr).unwrap();
+                    let s = str::from_utf8(&prog[start..i]).unwrap();
                     return (Sexp::Atom(s), i);
                 } else {
                     return (Sexp::List(res), i + 1);
                 }
             }
             _ => {
-                if !list {
-                    curr.push(prog[i]);
-                } else {
+                if list {
                     let (exp, j) = parse_sexp(prog, i);
                     res.push(exp);
                     i = j;
@@ -76,7 +75,7 @@ fn parse_sexp(prog: &[u8], mut start: usize) -> (Sexp, usize) {
     }
 
     if res.len() == 0 {
-        let s = String::from_utf8(curr).unwrap();
+        let s = str::from_utf8(&prog[start..i]).unwrap();
         return (Sexp::Atom(s), i);
     } else {
         return (Sexp::List(res), i);

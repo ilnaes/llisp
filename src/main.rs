@@ -15,13 +15,8 @@ fn main() {
 
     let contents = fs::read(&args[1]).expect("Could not read file!");
     let sexps = sexp::parse_sexps(contents.as_slice());
-    println!("{:?}\n\n", sexps);
-
     let ast = expr::parse_ast(sexps.as_slice());
-    println!("{:?}\n\n", ast);
-
     let inst = backend::asm::compile::compile(ast);
-    println!("{:?}\n\n", inst);
 
     println!("{}", backend::asm::to_asm(inst));
 }

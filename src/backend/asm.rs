@@ -18,7 +18,6 @@ pub enum Inst {
     IMov(Arg, Arg),
     IAdd(Arg, Arg),
     ISub(Arg, Arg),
-    IRet,
 }
 
 fn reg_to_asm(r: IReg) -> String {
@@ -47,12 +46,19 @@ fn inst_to_asm(is: Inst) -> String {
         Inst::IMov(a1, a2) => format!("  mov {}, {}", arg_to_asm(a1), arg_to_asm(a2)),
         Inst::IAdd(a1, a2) => format!("  add {}, {}", arg_to_asm(a1), arg_to_asm(a2)),
         Inst::ISub(a1, a2) => format!("  sub {}, {}", arg_to_asm(a1), arg_to_asm(a2)),
-        Inst::IRet => format!("  ret"),
     }
 }
 
 pub fn to_asm(insts: Vec<Inst>) -> String {
-    insts.into_iter().fold(String::new(), |acc, is| {
-        format!("{}\n{}", acc, inst_to_asm(is))
-    })
+    let prelude =
+        "  section .text\n  extern _print_out\n  global _our_code_starts_here\n_our_code_starts_here:\n  mov [rsp - 8], rdi\n";
+
+    format!(
+        "{}{}\n{}",
+        prelude,
+        insts.into_iter().fold(String::new(), |acc, is| {
+            format!("{}\n{}", acc, inst_to_asm(is))
+        }),
+        "  ret"
+    )
 }

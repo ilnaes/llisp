@@ -17,21 +17,21 @@ fn compile_prim2(op: Prim2, e1: Expr, e2: Expr, si: i64) -> Vec<Inst> {
     let mut is2 = compile_expr(e2, si);
     let mut res = Vec::new();
 
-    let op_is = match op {
-        Add => IAdd(Reg(RAX), stackloc(si)),
-        Minus => ISub(Reg(RAX), stackloc(si)),
+    let mut op_is = match op {
+        Add => vec![IAdd(Reg(RAX), stackloc(si)), ISub(Reg(RAX), Const(1))],
+        Minus => vec![ISub(Reg(RAX), stackloc(si)), ISub(Reg(RAX), Const(1))],
     };
 
     res.append(&mut is2);
     res.push(IMov(stackloc(si), Reg(RAX)));
     res.append(&mut is1);
-    res.push(op_is);
+    res.append(&mut op_is);
 
     return res;
 }
 
 pub fn compile(prog: Vec<Expr>) -> Vec<Inst> {
-    let mut it: Vec<Vec<Inst>> = prog.into_iter().map(|x| compile_expr(x, 0)).collect();
+    let mut it: Vec<Vec<Inst>> = prog.into_iter().map(|x| compile_expr(x, 2)).collect();
     let mut res = Vec::new();
 
     for mut inst in it.drain(..) {

@@ -14,19 +14,13 @@ main: $(shell find src -name "*.rs")
 main.o: main.c
 	clang -g -c $<
 
-output/%.run: output/%.o main.o
+output/%.run: output/%.s main.o
 	clang -g -mstackrealign -o $@ $< main.o
 
-# output/%.rrun: output/lib%.a runtime.rs
-# 	rustc -l$(basename $(notdir $@)) -L./output -o $@ runtime.rs
+output/%.s: output/%.ll 
+	llc -o $@ $<
 
-# output/lib%.a: output/%.o
-# 	ar rcs $@ $<
-
-output/%.o: output/%.s
-	nasm -f $(FORMAT) -o $@ $<
-
-output/%.s: input/%.llsp main
+output/%.ll: input/%.llsp main
 	mkdir -p output
 	./main $< > $@
 

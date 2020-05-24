@@ -1,13 +1,18 @@
+use super::*;
 use im::HashMap;
 
 #[derive(Debug, Clone)]
-pub struct Scope<'a> {
-    map: HashMap<&'a str, String>,
-    n: i64,
+pub struct Scope {
+    map: HashMap<String, Arg>,
+    n: usize,
 }
 
-impl<'a> Scope<'a> {
-    pub fn new(_: &[u8]) -> Scope {
+impl Scope {
+    pub fn incr(&mut self, m: usize) {
+        self.n += m
+    }
+
+    pub fn new() -> Scope {
         Scope {
             map: HashMap::new(),
             n: 0,
@@ -15,13 +20,18 @@ impl<'a> Scope<'a> {
     }
 
     /// inserts a new variable
-    pub fn register(&mut self, s: &'a str) -> String {
+    pub fn register(&mut self, s: String) -> Arg {
         self.n += 1;
-        let ok = if self.map.contains_key(s) {
-            self.map
-                .insert(s, format!("{}{}", s.replace("-", "_"), self.n))
+        let ok = if self.map.contains_key(&s) {
+            self.map.insert(
+                s.clone(),
+                Arg::AVar(Var::Local(format!("{}{}", s.replace("-", "_"), self.n))),
+            )
         } else {
-            self.map.insert(s, String::from(s.replace("-", "_")))
+            self.map.insert(
+                s.clone(),
+                Arg::AVar(Var::Local(String::from(s.replace("-", "_")))),
+            )
         };
 
         if let Some(res) = ok {
@@ -32,12 +42,13 @@ impl<'a> Scope<'a> {
     }
 
     /// gets a new clean symbol
-    pub fn sym(&self) -> String {
-        format!("sym{}", self.n)
+    pub fn sym(&mut self) -> Arg {
+        self.n += 1;
+        Arg::AVar(Var::Local(format!("sym{}", self.n)))
     }
 
     /// gets variable name associated to string
-    pub fn get(&'a self, s: &'a str) -> Option<&String> {
-        self.map.get(s)
+    pub fn get(&self, s: String) -> Option<&Arg> {
+        self.map.get(&s)
     }
 }

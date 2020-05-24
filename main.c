@@ -10,7 +10,7 @@
 #define NUM_MIN (- (1L << 62))
 #define NUM_MAX ((1L << 62) - 1)
 
-extern int64_t our_main() asm("our_main");
+extern int64_t our_main() asm("_our_main");
 
 int64_t print(int64_t val) {
   if ((val & 0x1L) == 0) {

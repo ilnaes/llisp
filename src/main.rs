@@ -1,3 +1,4 @@
+use crate::backend::llvm::*;
 use std::env;
 use std::fs;
 
@@ -16,11 +17,24 @@ fn main() {
     let contents = fs::read(&args[1]).expect("Could not read file!");
     let sexps = sexp::parse_sexps(contents.as_slice());
     let ast = expr::parse_ast(sexps.as_slice());
-    println!("{:?}", ast);
 
-    let mut scope = backend::llvm::scope::Scope::new(contents.as_slice());
-    scope.register("what");
+    let (mut insts, var) = ast.iter().fold(
+        (Vec::new(), backend::llvm::Arg::Const(0)),
+        |(mut acc, var), x| {
+            let (mut res, v, _) = compile::compile_expr(x, scope::Scope::new());
+            acc.append(&mut res);
+            (acc, v)
+        },
+    );
 
-    // let inst = backend::asm::compile::compile(&ast);
-    // println!("{}", backend::asm::to_asm(inst));
+    insts.push(backend::llvm::Inst::IRet(var));
+
+    println!(
+        "{}",
+        fundef_to_ll(FunDef {
+            name: "our_main".to_string(),
+            args: vec![],
+            inst: insts,
+        })
+    );
 }

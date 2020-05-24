@@ -16,7 +16,11 @@ fn main() {
     let contents = fs::read(&args[1]).expect("Could not read file!");
     let sexps = sexp::parse_sexps(contents.as_slice());
     let ast = expr::parse_ast(sexps.as_slice());
+    println!("{:?}", ast);
 
-    let inst = backend::asm::compile::compile(&ast);
-    println!("{}", backend::asm::to_asm(inst));
+    let mut scope = backend::llvm::scope::Scope::new(contents.as_slice());
+    scope.register("what");
+
+    // let inst = backend::asm::compile::compile(&ast);
+    // println!("{}", backend::asm::to_asm(inst));
 }

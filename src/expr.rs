@@ -17,6 +17,7 @@ fn parse<'a>(sexp: &Sexp<'a>) -> Expr<'a> {
         List(v) => match &v[..] {
             [Atom("+"), e1, e2] => EPrim2(Add, Box::new(parse(e1)), Box::new(parse(e2))),
             [Atom("-"), e1, e2] => EPrim2(Minus, Box::new(parse(e1)), Box::new(parse(e2))),
+            [Atom("*"), e1, e2] => EPrim2(Times, Box::new(parse(e1)), Box::new(parse(e2))),
             _ => panic!("Not yet implemented"),
         },
     }

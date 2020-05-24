@@ -24,18 +24,43 @@ pub fn compile_expr<'a>(expr: &Expr, mut scope: Scope) -> (Vec<Inst>, Arg, usize
             let var1 = scope.sym();
             let var2 = scope.sym();
 
-            let mut op_is = match op {
-                Prim2::Add => vec![
-                    Inst::IAdd(var1.clone(), v1, v2),
-                    Inst::ISub(var2.clone(), var1, Arg::Const(1)),
-                ],
-                _ => panic!("Not implemented"),
+            let (mut op_is, res, n) = match op {
+                Prim2::Add => (
+                    vec![
+                        Inst::IAdd(var1.clone(), v1, v2),
+                        Inst::ISub(var2.clone(), var1, Arg::Const(1)),
+                    ],
+                    var2,
+                    2,
+                ),
+                Prim2::Minus => (
+                    vec![
+                        Inst::ISub(var1.clone(), v1, v2),
+                        Inst::IAdd(var2.clone(), var1, Arg::Const(1)),
+                    ],
+                    var2,
+                    2,
+                ),
+                Prim2::Times => {
+                    let var3 = scope.sym();
+                    let var4 = scope.sym();
+                    (
+                        vec![
+                            Inst::IAshr(var1.clone(), v1, Arg::Const(1)),
+                            Inst::IMul(var2.clone(), var1.clone(), v2),
+                            Inst::ISub(var3.clone(), var2, var1.clone()),
+                            Inst::IAdd(var4.clone(), var3, Arg::Const(1)),
+                        ],
+                        var4,
+                        4,
+                    )
+                }
             };
 
             is1.append(&mut is2);
             is1.append(&mut op_is);
 
-            (is1, var2, n1 + n2 + 2)
+            (is1, res, n1 + n2 + n)
         }
         _ => panic!("Not implemented"),
     }

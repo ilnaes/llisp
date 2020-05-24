@@ -9,7 +9,7 @@ endif
 
 main: $(shell find src -name "*.rs")
 	cargo build
-	mv target/debug/llisp main
+	cp target/debug/llisp main
 
 main.o: main.c
 	clang -g -c $<

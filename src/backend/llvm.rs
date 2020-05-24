@@ -23,6 +23,8 @@ pub enum Arg {
 pub enum Inst {
     IAdd(Arg, Arg, Arg),
     ISub(Arg, Arg, Arg),
+    IAshr(Arg, Arg, Arg),
+    IMul(Arg, Arg, Arg),
     IRet(Arg),
 }
 
@@ -57,6 +59,18 @@ pub fn inst_to_ll(is: &Inst) -> String {
         ),
         Inst::ISub(dst, arg1, arg2) => format!(
             "  {} = sub i64 {}, {}",
+            arg_to_ll(dst),
+            arg_to_ll(arg1),
+            arg_to_ll(arg2)
+        ),
+        Inst::IMul(dst, arg1, arg2) => format!(
+            "  {} = mul i64 {}, {}",
+            arg_to_ll(dst),
+            arg_to_ll(arg1),
+            arg_to_ll(arg2)
+        ),
+        Inst::IAshr(dst, arg1, arg2) => format!(
+            "  {} = ashr i64 {}, {}",
             arg_to_ll(dst),
             arg_to_ll(arg1),
             arg_to_ll(arg2)

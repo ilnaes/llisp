@@ -48,7 +48,7 @@ impl Scope {
     }
 
     /// gets variable name associated to string
-    pub fn get(&self, s: String) -> Option<&Arg> {
-        self.map.get(&s)
+    pub fn get(&self, s: String) -> Option<Arg> {
+        self.map.get(&s).cloned()
     }
 }

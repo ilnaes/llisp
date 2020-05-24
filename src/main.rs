@@ -20,7 +20,7 @@ fn main() {
 
     let (mut insts, var) = ast.iter().fold(
         (Vec::new(), backend::llvm::Arg::Const(0)),
-        |(mut acc, var), x| {
+        |(mut acc, _), x| {
             let (mut res, v, _) = compile::compile_expr(x, scope::Scope::new());
             acc.append(&mut res);
             (acc, v)

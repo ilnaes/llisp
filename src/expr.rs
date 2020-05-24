@@ -5,13 +5,13 @@ use prim2::Prim2::*;
 pub mod expr;
 pub mod prim2;
 
-fn parse(sexp: &Sexp) -> Expr {
+fn parse<'a>(sexp: &Sexp<'a>) -> Expr<'a> {
     match sexp {
         Atom(s) => {
             if let Ok(i) = s.parse::<i64>() {
                 ENum(i)
             } else {
-                panic!("Cannot parse {}", s)
+                EId(s)
             }
         }
         List(v) => match &v[..] {
@@ -22,6 +22,6 @@ fn parse(sexp: &Sexp) -> Expr {
     }
 }
 
-pub fn parse_ast(sexps: &[Sexp]) -> Vec<Expr> {
+pub fn parse_ast<'a>(sexps: &[Sexp<'a>]) -> Vec<Expr<'a>> {
     sexps.into_iter().map(parse).collect()
 }

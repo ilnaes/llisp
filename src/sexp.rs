@@ -1,6 +1,6 @@
 use std::str;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Sexp<'a> {
     Atom(&'a str),
     List(Vec<Sexp<'a>>),
@@ -12,7 +12,9 @@ pub fn parse_sexps<'a>(prog: &'a [u8]) -> Vec<Sexp<'a>> {
 
     while i < prog.len() - 1 {
         let (curr, j) = parse_sexp(prog, i);
-        res.push(curr);
+        if curr != Sexp::Atom("") {
+            res.push(curr);
+        }
         i = j;
     }
 

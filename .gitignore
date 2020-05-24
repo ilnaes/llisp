@@ -1,5 +1,6 @@
 /target
 /output
 tags
+main
 *.swp
 *.llsp

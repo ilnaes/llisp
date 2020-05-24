@@ -20,25 +20,8 @@ impl Scope {
     }
 
     /// inserts a new variable
-    pub fn register(&mut self, s: String) -> Arg {
-        self.n += 1;
-        let ok = if self.map.contains_key(&s) {
-            self.map.insert(
-                s.clone(),
-                Arg::AVar(Var::Local(format!("{}{}", s.replace("-", "_"), self.n))),
-            )
-        } else {
-            self.map.insert(
-                s.clone(),
-                Arg::AVar(Var::Local(String::from(s.replace("-", "_")))),
-            )
-        };
-
-        if let Some(res) = ok {
-            res
-        } else {
-            panic!("Bad insertion");
-        }
+    pub fn register(&mut self, k: String, v: Arg) {
+        self.map.insert(k, v);
     }
 
     /// gets a new clean symbol
@@ -48,7 +31,7 @@ impl Scope {
     }
 
     /// gets variable name associated to string
-    pub fn get(&self, s: String) -> Option<Arg> {
-        self.map.get(&s).cloned()
+    pub fn get(&self, s: String) -> Arg {
+        self.map.get(&s).cloned().expect("Invalid binding")
     }
 }

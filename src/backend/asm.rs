@@ -51,7 +51,7 @@ fn inst_to_asm(is: Inst) -> String {
 
 pub fn to_asm(insts: Vec<Inst>) -> String {
     let prelude =
-        "  section .text\n  extern _print_out\n  global _our_code_starts_here\n_our_code_starts_here:\n  mov [rsp - 8], rdi\n";
+        "  section .text\n  extern _print_out\n  global our_main\nour_main:\n  mov [rsp - 8], rdi\n";
 
     format!(
         "{}{}\n{}",

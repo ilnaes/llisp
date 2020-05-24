@@ -11,16 +11,17 @@ main: $(shell find src -name "*.rs")
 	cargo build
 	mv target/debug/llisp main
 
-test: compile.ml runner.ml test.ml parser.ml
-	mkdir -p output
-	$(BUILD) test.native
-	mv test.native test
+main.o: main.c
+	clang -g -c $<
 
-output/%.run: output/lib%.a runtime.rs
-	rustc -l$(basename $(notdir $@)) -L./output -o $@ runtime.rs
+output/%.run: output/%.o main.o
+	clang -g -mstackrealign -o $@ $< main.o
 
-output/lib%.a: output/%.o
-	ar rcs $@ $<
+# output/%.rrun: output/lib%.a runtime.rs
+# 	rustc -l$(basename $(notdir $@)) -L./output -o $@ runtime.rs
+
+# output/lib%.a: output/%.o
+# 	ar rcs $@ $<
 
 output/%.o: output/%.s
 	nasm -f $(FORMAT) -o $@ $<
@@ -32,3 +33,4 @@ output/%.s: input/%.llsp main
 clean:
 	rm -rf output/
 	rm main
+	rm main.o

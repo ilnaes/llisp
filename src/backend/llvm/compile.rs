@@ -22,6 +22,9 @@ pub fn compile_expr<'a>(expr: &Expr, mut scope: Scope) -> (Vec<Inst>, Arg, usize
             let (mut is1, n1, scope) = bind.iter().fold(
                 (vec![], 0, scope.clone()),
                 |(mut res, n, mut sc), Binding(x, e)| {
+                    // compile exprs and update a new
+                    // scope with the bindings but increment
+                    // count on both scopes
                     let (mut is, v, m) = compile_expr(e, scope.clone());
 
                     scope.incr(m);

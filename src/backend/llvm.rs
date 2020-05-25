@@ -26,6 +26,7 @@ pub enum Inst {
     IAshr(Arg, Arg, Arg),
     IMul(Arg, Arg, Arg),
     IRet(Arg),
+    ICall(Arg),
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +76,7 @@ pub fn inst_to_ll(is: &Inst) -> String {
             arg_to_ll(arg1),
             arg_to_ll(arg2)
         ),
+        Inst::ICall(arg) => format!("  call void {}()", arg_to_ll(arg)),
         Inst::IRet(arg) => format!("  ret i64 {}", arg_to_ll(arg)),
     }
 }

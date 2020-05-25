@@ -32,7 +32,7 @@ fn parse<'a>(sexp: &Sexp<'a>) -> Expr<'a> {
                 l.into_iter().map(parse_binding).collect(),
                 Box::new(parse(e2)),
             ),
-            _ => panic!("Parse error"),
+            _ => panic!("Parse error {:?}", sexp),
         },
     }
 }

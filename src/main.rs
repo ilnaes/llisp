@@ -21,7 +21,7 @@ fn main() {
     let (mut insts, var) = ast.iter().fold(
         (Vec::new(), backend::llvm::Arg::Const(0)),
         |(mut acc, _), x| {
-            let (mut res, v, _) = compile::compile_expr(x, scope::Scope::new());
+            let (mut res, v, _) = compile::compile_expr(x, scope::Scope::new(contents.as_slice()));
             acc.append(&mut res);
             (acc, v)
         },

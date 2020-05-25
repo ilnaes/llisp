@@ -2,17 +2,17 @@ use super::*;
 use im::HashMap;
 
 #[derive(Debug, Clone)]
-pub struct Scope {
-    map: HashMap<String, Arg>,
+pub struct Scope<'a> {
+    map: HashMap<&'a str, Arg>,
     n: usize,
 }
 
-impl Scope {
+impl<'a> Scope<'a> {
     pub fn incr(&mut self, m: usize) {
         self.n += m
     }
 
-    pub fn new() -> Scope {
+    pub fn new(_: &'a [u8]) -> Scope<'a> {
         Scope {
             map: HashMap::new(),
             n: 0,
@@ -20,7 +20,7 @@ impl Scope {
     }
 
     /// inserts a new variable
-    pub fn register(&mut self, k: String, v: Arg) {
+    pub fn register(&mut self, k: &'a str, v: Arg) {
         self.map.insert(k, v);
     }
 
@@ -31,7 +31,7 @@ impl Scope {
     }
 
     /// gets variable name associated to string
-    pub fn get(&self, s: String) -> Arg {
-        self.map.get(&s).cloned().expect("Invalid binding")
+    pub fn get(&self, s: &'a str) -> Arg {
+        self.map.get(s).cloned().expect("Invalid binding")
     }
 }

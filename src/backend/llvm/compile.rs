@@ -2,7 +2,7 @@ use super::scope::Scope;
 use super::*;
 use crate::expr::{expr::*, prim2::*};
 
-pub fn compile_expr<'a>(expr: &Expr, mut scope: Scope) -> (Vec<Inst>, Arg, usize) {
+pub fn compile_expr<'a, 'b>(expr: &'b Expr<'a>, mut scope: Scope<'a>) -> (Vec<Inst>, Arg, usize) {
     match expr {
         Expr::ENum(n) => {
             let var = scope.sym();
@@ -16,7 +16,7 @@ pub fn compile_expr<'a>(expr: &Expr, mut scope: Scope) -> (Vec<Inst>, Arg, usize
                 1,
             )
         }
-        Expr::EId(x) => (vec![], scope.get(x.to_string()), 0),
+        Expr::EId(x) => (vec![], scope.get(x), 0),
         Expr::EPrim2(op, e1, e2) => parse_prim2(op, e1, e2, scope.clone()),
         Expr::ELet(bind, body) => {
             let (mut is1, n1, scope) = bind.iter().fold(
@@ -29,7 +29,7 @@ pub fn compile_expr<'a>(expr: &Expr, mut scope: Scope) -> (Vec<Inst>, Arg, usize
 
                     scope.incr(m);
                     sc.incr(m);
-                    sc.register(x.to_string(), v);
+                    sc.register(x, v);
 
                     res.append(&mut is);
 
@@ -44,11 +44,11 @@ pub fn compile_expr<'a>(expr: &Expr, mut scope: Scope) -> (Vec<Inst>, Arg, usize
     }
 }
 
-fn parse_prim2<'a>(
-    op: &'a Prim2,
-    e1: &'a Expr,
-    e2: &'a Expr,
-    mut scope: Scope,
+fn parse_prim2<'a, 'b>(
+    op: &'b Prim2,
+    e1: &'b Expr<'a>,
+    e2: &'b Expr<'a>,
+    mut scope: Scope<'a>,
 ) -> (Vec<Inst>, Arg, usize) {
     let (mut is1, v1, n1) = compile_expr(e1, scope.clone());
     scope.incr(n1);

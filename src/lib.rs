@@ -1,11 +1,11 @@
-pub mod backend;
-pub mod expr;
-pub mod sexp;
+mod backend;
+mod expr;
+mod sexp;
 
 use crate::backend::llvm::*;
 
-pub fn compile_to_string(s: &str) -> String {
-    let sexps = sexp::parse_sexps(s);
+pub fn compile_to_string(s: &str) -> Result<String, String> {
+    let sexps = sexp::parse_sexps(s)?;
     let ast = expr::parse_ast(sexps.as_slice());
 
     let (mut insts, var) = ast.iter().fold(
@@ -22,7 +22,7 @@ pub fn compile_to_string(s: &str) -> String {
     // )));
     insts.push(backend::llvm::Inst::IRet(var));
 
-    format!(
+    Ok(format!(
         // "declare external void @foo()\n\n{}",
         "{}",
         fundef_to_ll(FunDef {
@@ -30,5 +30,5 @@ pub fn compile_to_string(s: &str) -> String {
             args: vec![],
             inst: insts,
         })
-    )
+    ))
 }

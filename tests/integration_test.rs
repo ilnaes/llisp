@@ -5,16 +5,22 @@ use std::process::*;
 
 enum TestType<'a> {
     Runs(&'a str), // program should run and produce a desired output
+    ErrC,
 }
 use TestType::*;
 
-struct T<'a>(&'a str, TestType<'a>);
+struct T<'a>(&'a str, TestType<'a>); // a program as string and an outcome
 
 impl<'a> T<'a> {
     pub fn compile(&self, name: &str) {
+        assert!(std::fs::create_dir_all("output/").is_ok());
         let mut file = File::create(format!("output/{}.ll", name)).expect("Failed to create file");
-        file.write_all(compile_to_string(&self.0).as_bytes())
-            .expect("Couldn't write to file");
+        match compile_to_string(&self.0) {
+            Ok(s) => file
+                .write_all(s.as_bytes())
+                .expect("Couldn't write to file"),
+            Err(_) => assert!(false),
+        }
 
         let boutput = Command::new("make")
             .arg(format!("output/{}.run", name))
@@ -27,13 +33,19 @@ impl<'a> T<'a> {
         match self.1 {
             Runs(_) => {
                 assert!(ecode.status.success());
-                assert_eq!(ecode.stderr.len(), 0);
+            }
+            ErrC => {
+                assert!(!ecode.status.success());
             }
         }
     }
 
     pub fn run(&self, name: &str) {
+        std::fs::create_dir_all("output/").unwrap();
         match self.1 {
+            ErrC => {
+                self.compile(name);
+            }
             Runs(res) => {
                 self.compile(name);
 

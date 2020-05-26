@@ -6,22 +6,26 @@ pub enum Sexp<'a> {
     List(Vec<Sexp<'a>>),
 }
 
-pub fn parse_sexps<'a>(prog: &'a str) -> Vec<Sexp<'a>> {
+pub fn parse_sexps<'a>(prog: &'a str) -> Result<Vec<Sexp<'a>>, String> {
     let mut res: Vec<Sexp> = Vec::new();
     let mut i = 0;
 
     while i < prog.len() {
-        let (curr, j) = parse_sexp(prog, i);
+        let (curr, j) = parse_sexp(prog, i, 0)?;
         if curr != Sexp::Atom("") {
             res.push(curr);
         }
         i = j;
     }
 
-    return res;
+    return Ok(res);
 }
 
-fn parse_sexp<'a>(prog: &'a str, mut start: usize) -> (Sexp<'a>, usize) {
+fn parse_sexp<'a>(
+    prog: &'a str,
+    mut start: usize,
+    depth: i64,
+) -> Result<(Sexp<'a>, usize), String> {
     let mut res: Vec<Sexp> = Vec::new();
     let mut list = false; // indicates if we are parsing list
     let mut i = start;
@@ -36,10 +40,10 @@ fn parse_sexp<'a>(prog: &'a str, mut start: usize) -> (Sexp<'a>, usize) {
                     if !list {
                         // found ( in middle of parsing atom
                         let s = &prog[start..i];
-                        return (Sexp::Atom(s), i);
+                        return Ok((Sexp::Atom(s), i));
                     }
 
-                    let (exp, j) = parse_sexp(prog, i);
+                    let (exp, j) = parse_sexp(prog, i, depth + 1)?;
                     res.push(exp);
                     i = j;
                     continue;
@@ -53,21 +57,24 @@ fn parse_sexp<'a>(prog: &'a str, mut start: usize) -> (Sexp<'a>, usize) {
                 if !list {
                     if i > start {
                         let s = &prog[start..i];
-                        return (Sexp::Atom(s), i);
+                        return Ok((Sexp::Atom(s), i));
                     }
                 }
             }
             ')' => {
                 if !list {
+                    if depth == 0 {
+                        return Err("Lex: Too many )".to_string());
+                    }
                     let s = &prog[start..i];
-                    return (Sexp::Atom(s), i);
+                    return Ok((Sexp::Atom(s), i));
                 } else {
-                    return (Sexp::List(res), i + 1);
+                    return Ok((Sexp::List(res), i + 1));
                 }
             }
             _ => {
                 if list {
-                    let (exp, j) = parse_sexp(prog, i);
+                    let (exp, j) = parse_sexp(prog, i, depth + 1)?;
                     res.push(exp);
                     i = j;
                     continue;
@@ -77,10 +84,14 @@ fn parse_sexp<'a>(prog: &'a str, mut start: usize) -> (Sexp<'a>, usize) {
         i += 1;
     }
 
+    if depth > 0 || list {
+        return Err("Lex: Too many (".to_string());
+    }
+
     if res.len() == 0 {
         let s = &prog[start..i];
-        return (Sexp::Atom(s), i);
+        return Ok((Sexp::Atom(s), i));
     } else {
-        return (Sexp::List(res), i);
+        return Ok((Sexp::List(res), i));
     }
 }

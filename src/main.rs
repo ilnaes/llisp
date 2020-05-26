@@ -1,10 +1,6 @@
-use crate::backend::llvm::*;
+use llisp::compile_to_string;
 use std::env;
 use std::fs;
-
-mod backend;
-mod expr;
-mod sexp;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -16,30 +12,8 @@ fn main() {
 
     let contents = fs::read(&args[1]).expect("Could not read file!");
     let s = std::str::from_utf8(&contents).unwrap();
-    let sexps = sexp::parse_sexps(s);
-    let ast = expr::parse_ast(sexps.as_slice());
-
-    let (mut insts, var) = ast.iter().fold(
-        (Vec::new(), backend::llvm::Arg::Const(0)),
-        |(mut acc, _), x| {
-            let (mut res, v, _) = compile::compile_expr(x, scope::Scope::new(s));
-            acc.append(&mut res);
-            (acc, v)
-        },
-    );
-
-    // insts.push(backend::llvm::Inst::ICall(backend::llvm::Arg::AVar(
-    //     backend::llvm::Var::Global(String::from("foo")),
-    // )));
-    insts.push(backend::llvm::Inst::IRet(var));
-
-    println!(
-        // "declare external void @foo()\n\n{}",
-        "{}",
-        fundef_to_ll(FunDef {
-            name: "our_main".to_string(),
-            args: vec![],
-            inst: insts,
-        })
-    );
+    match compile_to_string(s) {
+        Ok(res) => println!("{}", res),
+        Err(e) => eprintln!("{}", e),
+    }
 }

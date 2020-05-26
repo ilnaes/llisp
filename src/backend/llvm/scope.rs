@@ -12,7 +12,7 @@ impl<'a> Scope<'a> {
         self.n += m
     }
 
-    pub fn new(_: &'a [u8]) -> Scope<'a> {
+    pub fn new(_: &'a str) -> Scope<'a> {
         Scope {
             map: HashMap::new(),
             n: 0,

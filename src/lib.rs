@@ -1,21 +1,10 @@
+pub mod backend;
+pub mod expr;
+pub mod sexp;
+
 use crate::backend::llvm::*;
-use std::env;
-use std::fs;
 
-mod backend;
-mod expr;
-mod sexp;
-
-fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() == 1 {
-        println!("Need argument!");
-        return;
-    }
-
-    let contents = fs::read(&args[1]).expect("Could not read file!");
-    let s = std::str::from_utf8(&contents).unwrap();
+pub fn compile_to_string(s: &str) -> String {
     let sexps = sexp::parse_sexps(s);
     let ast = expr::parse_ast(sexps.as_slice());
 
@@ -33,7 +22,7 @@ fn main() {
     // )));
     insts.push(backend::llvm::Inst::IRet(var));
 
-    println!(
+    format!(
         // "declare external void @foo()\n\n{}",
         "{}",
         fundef_to_ll(FunDef {
@@ -41,5 +30,5 @@ fn main() {
             args: vec![],
             inst: insts,
         })
-    );
+    )
 }

@@ -2,6 +2,9 @@ use super::scope::Scope;
 use super::*;
 use crate::expr::{expr::*, prim2::*};
 
+const TRUE_CONST: i64 = 0x2;
+const FALSE_CONST: i64 = 0x6;
+
 pub fn compile_expr<'a, 'b>(expr: &'b Expr<'a>, mut scope: Scope<'a>) -> (Vec<Inst>, Arg, usize) {
     match expr {
         Expr::ENum(n) => {
@@ -16,7 +19,22 @@ pub fn compile_expr<'a, 'b>(expr: &'b Expr<'a>, mut scope: Scope<'a>) -> (Vec<In
                 1,
             )
         }
-        Expr::EId(x) => (vec![], scope.get(x).unwrap(), 0), // static checkers will/should catch this
+        Expr::EBool(b) => {
+            let var = scope.sym();
+            (
+                vec![Inst::IAdd(
+                    var.clone(),
+                    Arg::Const(0),
+                    Arg::Const(if *b { TRUE_CONST } else { FALSE_CONST }),
+                )],
+                var,
+                1,
+            )
+        }
+        Expr::EId(x) => {
+            // static checkers will/should catch this
+            (vec![], scope.get(x).unwrap(), 0)
+        }
         Expr::EPrim2(op, e1, e2) => parse_prim2(op, e1, e2, scope.clone()),
         Expr::ELet(bind, body) => {
             let (mut is1, n1, scope) = bind.iter().fold(

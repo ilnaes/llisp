@@ -1,9 +1,13 @@
 use crate::sexp::{Sexp, Sexp::*};
 use expr::{Binding, Expr, Expr::*};
 use prim2::Prim2::*;
+use regex::Regex;
 
 pub mod expr;
 pub mod prim2;
+
+const FORBIDDEN_ID_REGEX: &'static str = r"[^\w\-]+";
+const RESERVED_NAMES: &'static [&'static str] = &["let"];
 
 fn parse_binding<'a>(b: &Sexp<'a>) -> Result<Binding<'a>, String> {
     match b {
@@ -17,11 +21,18 @@ fn parse_binding<'a>(b: &Sexp<'a>) -> Result<Binding<'a>, String> {
 
 fn parse<'a>(sexp: &Sexp<'a>) -> Result<Expr<'a>, String> {
     match sexp {
+        Atom("true") => Ok(EBool(true)),
+        Atom("false") => Ok(EBool(false)),
         Atom(s) => {
             if let Ok(i) = s.parse::<i64>() {
                 Ok(ENum(i))
             } else {
-                Ok(EId(s))
+                let re = Regex::new(FORBIDDEN_ID_REGEX).unwrap();
+                if !re.is_match(s) && !RESERVED_NAMES.contains(s) {
+                    Ok(EId(s))
+                } else {
+                    Err(format!("Parse error: Invalid identifier {}", s))
+                }
             }
         }
         List(v) => match &v[..] {

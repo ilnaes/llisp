@@ -64,7 +64,10 @@ fn parse_sexp<'a>(
             ')' => {
                 if !list {
                     if depth == 0 {
-                        return Err("Lex: Too many )".to_string());
+                        return Err(format!(
+                            "Lex error: Too many ) in {}",
+                            prog.get(0..i).unwrap()
+                        ));
                     }
                     let s = &prog[start..i];
                     return Ok((Sexp::Atom(s), i));
@@ -85,7 +88,7 @@ fn parse_sexp<'a>(
     }
 
     if depth > 0 || list {
-        return Err("Lex: Too many (".to_string());
+        return Err("Lex error: Too many (".to_string());
     }
 
     if res.len() == 0 {

@@ -6,7 +6,7 @@ use crate::backend::llvm::*;
 
 pub fn compile_to_string(s: &str) -> Result<String, String> {
     let sexps = sexp::parse_sexps(s)?;
-    let ast = expr::parse_ast(sexps.as_slice());
+    let ast = expr::parse_ast(sexps.as_slice())?;
 
     let (mut insts, var) = ast.iter().fold(
         (Vec::new(), backend::llvm::Arg::Const(0)),

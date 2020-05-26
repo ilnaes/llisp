@@ -5,85 +5,80 @@ use std::process::*;
 
 enum TestType<'a> {
     Runs(&'a str), // program should run and produce a desired output
-    ErrC,
+    ErrC(&'a str),
 }
 use TestType::*;
 
-struct T<'a>(&'a str, TestType<'a>); // a program as string and an outcome
-
-impl<'a> T<'a> {
-    pub fn compile(&self, name: &str) {
-        assert!(std::fs::create_dir_all("output/").is_ok());
-        let mut file = File::create(format!("output/{}.ll", name)).expect("Failed to create file");
-        match compile_to_string(&self.0) {
-            Ok(s) => file
-                .write_all(s.as_bytes())
-                .expect("Couldn't write to file"),
-            Err(_) => assert!(false),
+fn compile(name: &str, prog: &str, val: TestType) {
+    assert!(std::fs::create_dir_all("output/").is_ok());
+    let mut file = File::create(format!("output/{}.ll", name)).expect("Failed to create file");
+    match (compile_to_string(prog), val) {
+        (Ok(s), Runs(_)) => file
+            .write_all(s.as_bytes())
+            .expect("Couldn't write to file"),
+        (Err(e), ErrC(s)) => {
+            assert!(e.contains(s));
+            return;
         }
-
-        let boutput = Command::new("make")
-            .arg(format!("output/{}.run", name))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("Failed to build program");
-
-        let ecode = boutput.wait_with_output().expect("failed to wait on child");
-        match self.1 {
-            Runs(_) => {
-                assert!(ecode.status.success());
-            }
-            ErrC => {
-                assert!(!ecode.status.success());
-            }
-        }
+        _ => assert!(false),
     }
 
-    pub fn run(&self, name: &str) {
-        std::fs::create_dir_all("output/").unwrap();
-        match self.1 {
-            ErrC => {
-                self.compile(name);
-            }
-            Runs(res) => {
-                self.compile(name);
+    let boutput = Command::new("make")
+        .arg(format!("output/{}.run", name))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to build program");
 
-                let prog = Command::new(format!("output/{}.run", name))
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()
-                    .expect("Failed to run program");
+    let ecode = boutput.wait_with_output().expect("failed to wait on child");
+    assert!(ecode.status.success());
+}
 
-                let mut output = prog.wait_with_output().expect("failed to wait on child");
-                assert!(output.status.success());
-                assert_eq!(output.stderr.len(), 0);
+fn run(name: &str, prog: &str, val: TestType) {
+    std::fs::create_dir_all("output/").unwrap();
+    match val {
+        ErrC(_) => {
+            compile(name, prog, val);
+        }
+        Runs(res) => {
+            compile(name, prog, val);
 
-                // pop newline
-                output.stdout.pop();
-                assert_eq!(std::str::from_utf8(&output.stdout).unwrap(), res);
-            }
+            let prog = Command::new(format!("output/{}.run", name))
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("Failed to run program");
+
+            let mut output = prog.wait_with_output().expect("failed to wait on child");
+            assert!(output.status.success());
+            assert_eq!(output.stderr.len(), 0);
+
+            // pop newline
+            output.stdout.pop();
+            assert_eq!(std::str::from_utf8(&output.stdout).unwrap(), res);
         }
     }
 }
 
 macro_rules! run_tests {
-    ($($name:ident: $t:expr,)*) => {
+    ($($name:ident: $t:expr, $val:expr,)*) => {
     $(
         #[test]
         fn $name() {
-            $t.run(stringify!($name));
+            run(stringify!($name), $t, $val);
         }
     )*
     }
 }
 
 run_tests! {
-    test1: T("1", Runs("1")),
-    test2: T("(+ 2 3)", Runs("5")),
-    def_x: T("(let ((x 5)) x)", Runs("5")),
-    def_x2: T("(let ((x 5)) (- 1 x))", Runs("-4")),
-    def_x3: T("(let ((x 5)) (let ((x 67)) (- x 1)))", Runs("66")),
-    def_x4: T("(let ((x (let ((x 5)) (- x 1)))) (- x 1))", Runs("3")),
-    let_nested: T("(let ((x (+ 5 (+ 10 20)))) (* x x))", Runs("1225")),
+    test1: "1", Runs("1"),
+    test2: "(+ 2 3)", Runs("5"),
+    def_x1: "(let ((x 5)) (- 1 x))", Runs("-4"),
+    def_x2: "(let ((x (let ((x 5)) (- x 1)))) (- x 1))", Runs("3"),
+    let_nested: "(let ((x (+ 5 (+ 10 20)))) (* x x))", Runs("1225"),
+
+    fail: "((1)", ErrC("Lex error"),
+    fail2: "(1))", ErrC("Lex error"),
+    fail3: "(1 2)", ErrC("Parse error"),
 }

@@ -31,7 +31,10 @@ impl<'a> Scope<'a> {
     }
 
     /// gets variable name associated to string
-    pub fn get(&self, s: &'a str) -> Arg {
-        self.map.get(s).cloned().expect("Invalid binding")
+    pub fn get(&self, s: &'a str) -> Result<Arg, String> {
+        match self.map.get(s).cloned() {
+            Some(x) => Ok(x),
+            None => Err(format!("Unbound identifier {}", s)),
+        }
     }
 }

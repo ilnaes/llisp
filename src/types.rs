@@ -23,6 +23,10 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             .flatten()
             .collect();
 
+        // for eq in _eqns {
+        //     println!("{:?}\n  == {:?}", eq.0, eq.1);
+        // }
+
         Ok(TypeEnv(HashMap::new()))
     }
 
@@ -100,7 +104,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 ]);
             }
             Expr::ELet(bind, body) => {
-                res.push((TEVar(e, env), TEVar(body, env)));
+                res.push((TEVar(e, env), TEVar(body, env + 1)));
 
                 for Binding(x, e) in bind {
                     res.append(&mut Self::extract_eqns(e, gen));

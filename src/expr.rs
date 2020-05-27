@@ -7,7 +7,7 @@ pub mod expr;
 pub mod prim2;
 
 const FORBIDDEN_ID_REGEX: &'static str = r"[^\w\-]+";
-const RESERVED_NAMES: &'static [&'static str] = &["let"];
+const RESERVED_NAMES: &'static [&'static str] = &["let", "if"];
 
 fn parse_binding<'a>(b: &Sexp<'a>) -> Result<Binding<'a>, String> {
     match b {
@@ -39,11 +39,19 @@ fn parse<'a>(sexp: &Sexp<'a>) -> Result<Expr<'a>, String> {
             [Atom("+"), e1, e2] => Ok(EPrim2(Add, Box::new(parse(e1)?), Box::new(parse(e2)?))),
             [Atom("-"), e1, e2] => Ok(EPrim2(Minus, Box::new(parse(e1)?), Box::new(parse(e2)?))),
             [Atom("*"), e1, e2] => Ok(EPrim2(Times, Box::new(parse(e1)?), Box::new(parse(e2)?))),
+            [Atom("<"), e1, e2] => Ok(EPrim2(Less, Box::new(parse(e1)?), Box::new(parse(e2)?))),
+            [Atom(">"), e1, e2] => Ok(EPrim2(Greater, Box::new(parse(e1)?), Box::new(parse(e2)?))),
+            [Atom("=="), e1, e2] => Ok(EPrim2(Equal, Box::new(parse(e1)?), Box::new(parse(e2)?))),
             [Atom("let"), List(l), e2] => Ok(ELet(
                 l.into_iter()
                     .map(parse_binding)
                     .collect::<Result<Vec<Binding<'a>>, String>>()?,
                 Box::new(parse(e2)?),
+            )),
+            [Atom("if"), e1, e2, e3] => Ok(EIf(
+                Box::new(parse(e1)?),
+                Box::new(parse(e2)?),
+                Box::new(parse(e3)?),
             )),
             _ => return Err(format!("Parse error: {:?}", sexp)),
         },

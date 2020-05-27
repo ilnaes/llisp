@@ -25,6 +25,9 @@ pub enum Inst {
     ISub(Arg, Arg, Arg),
     IAshr(Arg, Arg, Arg),
     IMul(Arg, Arg, Arg),
+    IGt(Arg, Arg, Arg),
+    ILt(Arg, Arg, Arg),
+    IEq(Arg, Arg, Arg),
     IRet(Arg),
     ICall(Arg),
 }
@@ -72,6 +75,24 @@ pub fn inst_to_ll(is: &Inst) -> String {
         ),
         Inst::IAshr(dst, arg1, arg2) => format!(
             "  {} = ashr i64 {}, {}",
+            arg_to_ll(dst),
+            arg_to_ll(arg1),
+            arg_to_ll(arg2)
+        ),
+        Inst::IEq(dst, arg1, arg2) => format!(
+            "  {} = cmp eq i64 {}, {}",
+            arg_to_ll(dst),
+            arg_to_ll(arg1),
+            arg_to_ll(arg2)
+        ),
+        Inst::IGt(dst, arg1, arg2) => format!(
+            "  {} = cmp sgt i64 {}, {}",
+            arg_to_ll(dst),
+            arg_to_ll(arg1),
+            arg_to_ll(arg2)
+        ),
+        Inst::ILt(dst, arg1, arg2) => format!(
+            "  {} = cmp slt i64 {}, {}",
             arg_to_ll(dst),
             arg_to_ll(arg1),
             arg_to_ll(arg2)

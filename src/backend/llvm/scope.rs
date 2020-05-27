@@ -1,33 +1,36 @@
 use super::*;
 use im::HashMap;
 
-#[derive(Debug, Clone)]
-pub struct Scope<'a> {
-    map: HashMap<&'a str, Arg>,
+pub struct Generator {
     n: usize,
 }
 
-impl<'a> Scope<'a> {
-    pub fn incr(&mut self, m: usize) {
-        self.n += m
+impl Generator {
+    pub fn new() -> Generator {
+        Generator { n: 0 }
     }
 
+    pub fn sym(&mut self) -> Arg {
+        self.n += 1;
+        Arg::AVar(Var::Local(format!("sym{}", self.n)))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Scope<'a> {
+    map: HashMap<&'a str, Arg>,
+}
+
+impl<'a> Scope<'a> {
     pub fn new(_: &'a str) -> Scope<'a> {
         Scope {
             map: HashMap::new(),
-            n: 0,
         }
     }
 
     /// inserts a new variable
     pub fn register(&mut self, k: &'a str, v: Arg) {
         self.map.insert(k, v);
-    }
-
-    /// gets a new clean symbol
-    pub fn sym(&mut self) -> Arg {
-        self.n += 1;
-        Arg::AVar(Var::Local(format!("sym{}", self.n)))
     }
 
     /// gets variable name associated to string

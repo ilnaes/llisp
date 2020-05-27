@@ -4,9 +4,10 @@ use super::prim2::Prim2;
 pub enum Expr<'a> {
     ENum(i64),
     EBool(bool),
+    EId(&'a str),
     EPrim2(Prim2, Box<Expr<'a>>, Box<Expr<'a>>),
     ELet(Vec<Binding<'a>>, Box<Expr<'a>>),
-    EId(&'a str),
+    EIf(Box<Expr<'a>>, Box<Expr<'a>>, Box<Expr<'a>>),
 }
 
 #[derive(Debug, Clone)]

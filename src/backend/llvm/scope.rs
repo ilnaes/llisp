@@ -16,7 +16,7 @@ impl Generator {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Scope<'a> {
     map: HashMap<&'a str, Arg>,
 }

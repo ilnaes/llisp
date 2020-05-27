@@ -84,4 +84,10 @@ run_tests! {
     fail3: ("(1 2)", ErrC("Parse error")),
     fail4: ("(let ((let 1)) let)", ErrC("Parse error")),
     fail5: ("(let ((a* 1)) a*)", ErrC("Parse error")),
+
+    cond1: ("(if (> 1 0) 1 0)", Runs("1")),
+    cond2: ("(if (< 1 0) 1 0)", Runs("0")),
+    cond3: ("(let ((x true)) (if x 0 1))", Runs("0")),
+
+    cond_fail: ("(if (> 1 0) 1)", ErrC("Parse error")),
 }

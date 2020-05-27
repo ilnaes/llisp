@@ -18,13 +18,9 @@ pub fn compile_to_string(s: &str) -> Result<String, String> {
         },
     );
 
-    // insts.push(backend::llvm::Inst::ICall(backend::llvm::Arg::AVar(
-    //     backend::llvm::Var::Global(String::from("foo")),
-    // )));
     insts.push(backend::llvm::Inst::IRet(var));
 
     Ok(format!(
-        // "declare external void @foo()\n\n{}",
         "{}",
         fundef_to_ll(FunDef {
             name: "our_main".to_string(),

@@ -10,7 +10,7 @@ pub mod scope;
 #[derive(Debug, Clone)]
 pub enum Var {
     Local(String),
-    Global(String),
+    // Global(String),
 }
 
 #[derive(Debug, Clone)]
@@ -19,9 +19,19 @@ pub enum Arg {
     Const(i64),
 }
 
+impl Arg {
+    pub fn toString(&self) -> String {
+        match self {
+            Arg::Const(n) => format!("{}", n),
+            Arg::AVar(Var::Local(s)) => s.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Inst {
-    IAdd(Arg, Arg, Arg),
+    IAdd64(Arg, Arg, Arg),
+    IAdd1(Arg, Arg, Arg),
     ISub(Arg, Arg, Arg),
     IAshr(Arg, Arg, Arg),
     IMul(Arg, Arg, Arg),
@@ -29,7 +39,13 @@ pub enum Inst {
     ILt(Arg, Arg, Arg),
     IEq(Arg, Arg, Arg),
     IRet(Arg),
-    ICall(Arg),
+    IAlloc(Arg),
+    IStore(Arg, Arg),
+    ILoad(Arg, Arg),
+    ILabel(String),
+    IBrk(Arg, Arg, Arg), // conditional break
+    IJmp(Arg),           // unconditional break
+                         // ICall(Arg),
 }
 
 #[derive(Debug, Clone)]
@@ -41,8 +57,8 @@ pub struct FunDef {
 
 pub fn var_to_ll(v: &Var) -> String {
     match v {
-        Var::Local(s) => format!("%{}", s),
-        Var::Global(s) => format!("@{}", s),
+        Var::Local(s) => format!("%{}", s.replace("-", "_")),
+        // Var::Global(s) => format!("@{}", s),
     }
 }
 
@@ -55,8 +71,14 @@ pub fn arg_to_ll(a: &Arg) -> String {
 
 pub fn inst_to_ll(is: &Inst) -> String {
     match is {
-        Inst::IAdd(dst, arg1, arg2) => format!(
+        Inst::IAdd64(dst, arg1, arg2) => format!(
             "  {} = add i64 {}, {}",
+            arg_to_ll(dst),
+            arg_to_ll(arg1),
+            arg_to_ll(arg2)
+        ),
+        Inst::IAdd1(dst, arg1, arg2) => format!(
+            "  {} = add i1 {}, {}",
             arg_to_ll(dst),
             arg_to_ll(arg1),
             arg_to_ll(arg2)
@@ -80,24 +102,43 @@ pub fn inst_to_ll(is: &Inst) -> String {
             arg_to_ll(arg2)
         ),
         Inst::IEq(dst, arg1, arg2) => format!(
-            "  {} = cmp eq i64 {}, {}",
+            "  {} = icmp eq i64 {}, {}",
             arg_to_ll(dst),
             arg_to_ll(arg1),
             arg_to_ll(arg2)
         ),
         Inst::IGt(dst, arg1, arg2) => format!(
-            "  {} = cmp sgt i64 {}, {}",
+            "  {} = icmp sgt i64 {}, {}",
             arg_to_ll(dst),
             arg_to_ll(arg1),
             arg_to_ll(arg2)
         ),
         Inst::ILt(dst, arg1, arg2) => format!(
-            "  {} = cmp slt i64 {}, {}",
+            "  {} = icmp slt i64 {}, {}",
             arg_to_ll(dst),
             arg_to_ll(arg1),
             arg_to_ll(arg2)
         ),
-        Inst::ICall(arg) => format!("  call void {}()", arg_to_ll(arg)),
+        Inst::IAlloc(dst) => format!("  {} = alloca i64, align 8", arg_to_ll(dst)),
+        Inst::IStore(dst, src) => format!(
+            "  store i64 {}, i64* {}, align 8",
+            arg_to_ll(src),
+            arg_to_ll(dst)
+        ),
+        Inst::ILoad(dst, src) => format!(
+            "  {} = load i64, i64* {}, align 8",
+            arg_to_ll(dst),
+            arg_to_ll(src)
+        ),
+        Inst::ILabel(l) => format!("{}:", l),
+        Inst::IBrk(cond, thn, els) => format!(
+            "  br i1 {}, label {}, label {}",
+            arg_to_ll(cond),
+            arg_to_ll(thn),
+            arg_to_ll(els)
+        ),
+        Inst::IJmp(dst) => format!("  br label {}", arg_to_ll(dst)),
+        // Inst::ICall(arg) => format!("  call void {}()", arg_to_ll(arg)),
         Inst::IRet(arg) => format!("  ret i64 {}", arg_to_ll(arg)),
     }
 }

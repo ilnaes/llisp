@@ -1,29 +1,33 @@
 use crate::expr::expr::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::iter::Extend;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum TypeExpr<'a, 'b> {
-    TEVar(&'b Expr<'a>, usize),
+    TEVar(&'b Expr<'a>, usize), // an expression in an environmment (usize)
     TENum,
     TEBool,
 }
 
 use TypeExpr::*;
 
-pub struct EnvGen(usize);
+pub struct EnvGen(usize); // generates a new environment
 
 pub struct TypeEnv<'a, 'b>(HashMap<&'b Expr<'a>, TypeExpr<'a, 'b>>);
 
-impl<'a, 'b> TypeEnv<'a, 'b> {
-    pub fn new(expr: &'b [Expr<'a>]) -> Result<TypeEnv<'a, 'b>, String> {
-        let mut gen = EnvGen(0);
-        let _eqns: Vec<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)> = expr
-            .iter()
-            .map(|x| Self::extract_eqns(x, &mut gen))
-            .flatten()
-            .collect();
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct TypeEqn<'a, 'b>(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>);
 
-        // for eq in _eqns {
+impl<'a, 'b> TypeEnv<'a, 'b> {
+    pub fn new(exprs: &'b [Expr<'a>]) -> Result<TypeEnv<'a, 'b>, String> {
+        let mut gen = EnvGen(0);
+        let mut eqns = HashSet::new();
+
+        for e in exprs.iter() {
+            Self::extract_eqns(e, &mut gen, &mut eqns);
+        }
+
+        // for eq in eqns {
         //     println!("{:?}\n  == {:?}", eq.0, eq.1);
         // }
 
@@ -85,39 +89,42 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
     fn extract_eqns(
         e: &'b Expr<'a>,
         gen: &mut EnvGen,
-    ) -> Vec<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)> {
+        set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
+    ) {
         let env = gen.0;
-        let mut res = Vec::new();
         match e {
             Expr::EId(_) => {}
-            Expr::ENum(_) => res.push((TEVar(e, env), TENum)),
-            Expr::EBool(_) => res.push((TEVar(e, env), TEBool)),
-            Expr::EPrim2(op, e1, e2) => res.append(&mut Self::extract_prim2(e, op, e1, e2, gen)),
+            Expr::ENum(_) => {
+                set.insert((TEVar(e, env), TENum));
+            }
+            Expr::EBool(_) => {
+                set.insert((TEVar(e, env), TEBool));
+            }
+            Expr::EPrim2(op, e1, e2) => Self::extract_prim2(e, op, e1, e2, gen, set),
             Expr::EIf(cond, e1, e2) => {
-                res.append(&mut Self::extract_eqns(cond, gen));
-                res.append(&mut Self::extract_eqns(e1, gen));
-                res.append(&mut Self::extract_eqns(e2, gen));
-                res.append(&mut vec![
+                Self::extract_eqns(cond, gen, set);
+                Self::extract_eqns(e1, gen, set);
+                Self::extract_eqns(e2, gen, set);
+                set.extend(vec![
                     (TEVar(cond, env), TEBool),
                     (TEVar(e1, env), TEVar(e2, env)),
                     (TEVar(e, env), TEVar(e1, env)),
                 ]);
             }
             Expr::ELet(bind, body) => {
-                res.push((TEVar(e, env), TEVar(body, env + 1)));
+                set.insert((TEVar(e, env), TEVar(body, env + 1)));
 
                 for Binding(x, e) in bind {
-                    res.append(&mut Self::extract_eqns(e, gen));
+                    Self::extract_eqns(e, gen, set);
 
                     if let Some(y) = Self::extract_eid(body, x, env + 1) {
-                        res.push((y, TEVar(e, env)));
+                        set.insert((y, TEVar(e, env)));
                     }
                 }
                 gen.0 += 1;
-                res.append(&mut Self::extract_eqns(body, gen));
+                Self::extract_eqns(body, gen, set);
             }
         }
-        res
     }
 
     fn extract_prim2(
@@ -126,35 +133,33 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         e1: &'b Expr<'a>,
         e2: &'b Expr<'a>,
         gen: &mut EnvGen,
-    ) -> Vec<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)> {
+        set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
+    ) {
         let env = gen.0;
-        let mut res = Vec::new();
-        res.append(&mut Self::extract_eqns(e1, gen));
-        res.append(&mut Self::extract_eqns(e2, gen));
+        Self::extract_eqns(e1, gen, set);
+        Self::extract_eqns(e2, gen, set);
 
         match op {
             Prim2::Add | Prim2::Minus | Prim2::Times => {
-                res.append(&mut vec![
+                set.extend(vec![
                     (TEVar(e1, env), TENum),
                     (TEVar(e2, env), TENum),
                     (TEVar(e, env), TENum),
                 ]);
             }
             Prim2::Less | Prim2::Greater => {
-                res.append(&mut vec![
+                set.extend(vec![
                     (TEVar(e1, env), TENum),
                     (TEVar(e2, env), TENum),
                     (TEVar(e, env), TEBool),
                 ]);
             }
             Prim2::Equal => {
-                res.append(&mut vec![
+                set.extend(vec![
                     (TEVar(e1, env), TEVar(e2, env)),
                     (TEVar(e, env), TEBool),
                 ]);
             }
         }
-
-        res
     }
 }

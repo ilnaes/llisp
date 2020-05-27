@@ -1,5 +1,3 @@
-use super::prim2::Prim2;
-
 #[derive(Debug, Clone)]
 pub enum Expr<'a> {
     ENum(i64),
@@ -12,3 +10,13 @@ pub enum Expr<'a> {
 
 #[derive(Debug, Clone)]
 pub struct Binding<'a>(pub &'a str, pub Expr<'a>);
+
+#[derive(Debug, Clone)]
+pub enum Prim2 {
+    Add,
+    Minus,
+    Times,
+    Less,
+    Greater,
+    Equal,
+}

@@ -1,10 +1,8 @@
 use crate::sexp::{Sexp, Sexp::*};
-use expr::{Binding, Expr, Expr::*};
-use prim2::Prim2::*;
+use expr::{Binding, Expr, Expr::*, Prim2::*};
 use regex::Regex;
 
 pub mod expr;
-pub mod prim2;
 
 const FORBIDDEN_ID_REGEX: &'static str = r"[^\w\-\?]+";
 const RESERVED_NAMES: &'static [&'static str] = &["let", "if"];

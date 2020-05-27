@@ -1,6 +1,6 @@
 use super::scope::*;
 use super::*;
-use crate::expr::{expr::*, prim2::*};
+use crate::expr::expr::*;
 
 // const TRUE_CONST: i64 = 0x2;
 // const FALSE_CONST: i64 = 0x6;
@@ -58,11 +58,11 @@ pub fn compile_expr<'a, 'b>(
         Expr::EIf(cond, e1, e2) => {
             let store = gen.sym();
             let true_branch = gen.sym();
-            let true_label = true_branch.toString();
+            let true_label = true_branch.to_string();
             let false_branch = gen.sym();
-            let false_label = false_branch.toString();
+            let false_label = false_branch.to_string();
             let after = gen.sym();
-            let after_label = after.toString();
+            let after_label = after.to_string();
 
             let mut ins = vec![Inst::IAlloc(store.clone())];
             let (mut ins1, v1) = compile_expr(cond, scope.clone(), gen);

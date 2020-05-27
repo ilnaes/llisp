@@ -20,7 +20,7 @@ pub enum Arg {
 }
 
 impl Arg {
-    pub fn toString(&self) -> String {
+    pub fn to_string(&self) -> String {
         match self {
             Arg::Const(n) => format!("{}", n),
             Arg::AVar(Var::Local(s)) => s.clone(),

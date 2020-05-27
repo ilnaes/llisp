@@ -1,4 +1,4 @@
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr<'a> {
     ENum(i64),
     EBool(bool),
@@ -8,10 +8,10 @@ pub enum Expr<'a> {
     EIf(Box<Expr<'a>>, Box<Expr<'a>>, Box<Expr<'a>>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Binding<'a>(pub &'a str, pub Expr<'a>);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Prim2 {
     Add,
     Minus,

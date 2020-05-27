@@ -1,12 +1,14 @@
 mod backend;
 mod expr;
 mod sexp;
+mod types;
 
 use crate::backend::llvm::*;
 
 pub fn compile_to_string(s: &str) -> Result<String, String> {
     let sexps = sexp::parse_sexps(s)?;
     let ast = expr::parse_ast(sexps.as_slice())?;
+    let _ = types::TypeEnv::new(ast.as_slice());
     let mut gen = scope::Generator::new();
 
     let (mut insts, var) = ast.iter().fold(

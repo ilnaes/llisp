@@ -1,3 +1,3 @@
 # llisp
 
-A lisp written in rust.  WIP.
+A lisp written in Rust.  WIP.

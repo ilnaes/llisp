@@ -2,8 +2,8 @@ pub mod compile;
 pub mod scope;
 
 // #[derive(Debug, Clone)]
-// pub enum Type {
-//     I32,
+// pub enum VType {
+//     I1,
 //     I64,
 // }
 
@@ -54,6 +54,13 @@ pub struct FunDef {
     pub args: Vec<String>,
     pub inst: Vec<Inst>,
 }
+
+// pub fn typ_to_ll(t: &VType) -> String {
+//     match t {
+//         VType::I1 => String::from("i1"),
+//         VType::I64 => String::from("i64"),
+//     }
+// }
 
 pub fn var_to_ll(v: &Var) -> String {
     match v {

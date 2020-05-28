@@ -4,7 +4,7 @@ use std::iter::Extend;
 use std::ptr;
 
 #[derive(Debug, Clone, Hash)]
-enum TypeExpr<'a, 'b> {
+pub enum TypeExpr<'a, 'b> {
     TVar(&'b Expr<'a>, Option<&'b Expr<'a>>), // an expression and its defining let (parent)
     TNum,
     TBool,
@@ -35,7 +35,7 @@ impl<'a, 'b> PartialEq for TypeExpr<'a, 'b> {
 
 impl<'a, 'b> Eq for TypeExpr<'a, 'b> {}
 
-pub struct TypeEnv<'a, 'b>(HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>>);
+pub type TypeEnv<'a, 'b> = HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>>;
 
 pub fn new_typenv<'a, 'b>(exprs: &'b [Expr<'a>]) -> Result<TypeEnv<'a, 'b>, String> {
     let mut eqns = HashSet::new();
@@ -103,7 +103,7 @@ fn unify<'a, 'b>(
     // }
 
     let res: HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>> = subs.into_iter().collect();
-    Ok(TypeEnv(res))
+    Ok(res)
 }
 
 // extracts a TVar corresponding to a str from a binding

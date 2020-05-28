@@ -5,7 +5,7 @@
 #include <inttypes.h>
 
 #define TRUE 0x0000000000000002L
-#define FALSE 0x0000000000000000L
+#define FALSE 0x0000000000000006L
 
 #define NUM_MIN (- (1L << 62))
 #define NUM_MAX ((1L << 62) - 1)

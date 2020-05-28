@@ -88,6 +88,14 @@ run_tests! {
     cond1: ("(if (> 1 0) 1 0)", Runs("1")),
     cond2: ("(if (< 1 0) 1 0)", Runs("0")),
     cond3: ("(let ((x true)) (if x 0 1))", Runs("0")),
+    cond4: ("(if (== 1 0) 1 0)", Runs("0")),
+    cond5: ("(if (== false false) 1 0)", Runs("1")),
+    nest_cond1: ("(if (let ((x false)) x) 2 1)", Runs("1")),
+    nest_cond2: ("(if (if (> 2 1) true false) 2 1)", Runs("2")),
 
     cond_fail: ("(if (> 1 0) 1)", ErrC("Parse error")),
+
+    type_err1: ("(if true 1 false)", ErrC("Type inference conflict")),
+    type_err2: ("(if 1 1 2)", ErrC("Type inference conflict")),
+    type_err3: ("(if (== 1 false) 1 0)", ErrC("Type inference conflict")),
 }

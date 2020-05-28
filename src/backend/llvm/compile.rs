@@ -1,10 +1,10 @@
 use super::scope::*;
 use super::*;
 use crate::expr::expr::*;
-use crate::types::TypeEnv;
+use crate::types::*;
 
-const TRUE_CONST: i64 = 0x2;
-const FALSE_CONST: i64 = 0x6;
+// const TRUE_CONST: i64 = 0x2;
+// const FALSE_CONST: i64 = 0x6;
 
 pub fn compile_expr<'a, 'b>(
     expr: &'b Expr<'a>,
@@ -29,10 +29,10 @@ pub fn compile_expr<'a, 'b>(
         Expr::EBool(b) => {
             let var = gen.sym();
             (
-                vec![Inst::IAdd64(
+                vec![Inst::IAdd1(
                     var.clone(),
                     Arg::Const(0),
-                    Arg::Const(if *b { TRUE_CONST } else { FALSE_CONST }),
+                    Arg::Const(if *b { 1 } else { 0 }),
                 )],
                 var,
                 vec![],
@@ -64,6 +64,10 @@ pub fn compile_expr<'a, 'b>(
             (is1, v, alloc)
         }
         Expr::EIf(cond, e1, e2) => {
+            let (mut ins1, v1, mut alloc1) = compile_expr(cond, scope.clone(), gen, env, typenv);
+            let (mut ins2, v2, mut alloc2) = compile_expr(e1, scope.clone(), gen, env, typenv);
+            let (mut ins3, v3, mut alloc3) = compile_expr(e2, scope.clone(), gen, env, typenv);
+
             let store = gen.sym();
             let true_branch = gen.sym();
             let true_label = true_branch.to_string();
@@ -71,42 +75,35 @@ pub fn compile_expr<'a, 'b>(
             let false_label = false_branch.to_string();
             let after = gen.sym();
             let after_label = after.to_string();
-            let cmp = gen.sym();
 
-            let mut ins = vec![];
-            let mut alloc = vec![Inst::IAlloc(store.clone())];
-            let (mut ins1, v1, mut alloc1) = compile_expr(cond, scope.clone(), gen, env, typenv);
+            let typ = typenv.get_vtype(&expr, env).unwrap();
 
-            ins.append(&mut ins1);
-            ins.append(&mut vec![
-                Inst::IEq(cmp.clone(), v1, Arg::Const(TRUE_CONST)),
-                Inst::IBrk(cmp, true_branch, false_branch),
+            ins1.append(&mut vec![
+                Inst::IBrk(v1, true_branch, false_branch),
                 Inst::ILabel(true_label),
             ]);
-            alloc.append(&mut alloc1);
 
-            let (mut ins2, v2, mut alloc2) = compile_expr(e1, scope.clone(), gen, env, typenv);
-            ins.append(&mut ins2);
-            ins.append(&mut vec![
-                Inst::IStore(store.clone(), v2),
+            ins1.append(&mut ins2);
+            ins1.append(&mut vec![
+                Inst::IStore(typ.clone(), store.clone(), v2),
                 Inst::IJmp(after.clone()),
                 Inst::ILabel(false_label),
             ]);
-            alloc.append(&mut alloc2);
+            alloc1.append(&mut alloc2);
 
-            let (mut ins3, v3, mut alloc3) = compile_expr(e2, scope.clone(), gen, env, typenv);
-            ins.append(&mut ins3);
-            ins.append(&mut vec![
-                Inst::IStore(store.clone(), v3),
+            ins1.append(&mut ins3);
+            ins1.append(&mut vec![
+                Inst::IStore(typ.clone(), store.clone(), v3),
                 Inst::IJmp(after.clone()),
                 Inst::ILabel(after_label),
             ]);
-            alloc.append(&mut alloc3);
+            alloc1.append(&mut alloc3);
 
             let res = gen.sym();
-            ins.push(Inst::ILoad(res.clone(), store));
+            ins1.push(Inst::ILoad(typ.clone(), res.clone(), store.clone()));
+            alloc1.push(Inst::IAlloc(typ.clone(), store));
 
-            return (ins, res, alloc);
+            return (ins1, res, alloc1);
         }
     }
 }
@@ -157,22 +154,27 @@ fn parse_prim2<'a, 'b>(
             )
         }
         Prim2::Equal => {
-            let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
-            let mut ins = vec![Inst::IEq(var1, v1, v2)];
-            ins.append(&mut insts);
-            (ins, res, alloc)
+            // let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
+            // let mut ins = vec![Inst::IEq(var1, v1, v2)];
+            // ins.append(&mut insts);
+            // (ins, res, alloc)
+
+            let typ = typenv.get_vtype(&e1, env).unwrap();
+            (vec![Inst::IEq(typ, var1.clone(), v1, v2)], var1, vec![])
         }
         Prim2::Less => {
-            let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
-            let mut ins = vec![Inst::ILt(var1, v1, v2)];
-            ins.append(&mut insts);
-            (ins, res, alloc)
+            // let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
+            // let mut ins = vec![Inst::ILt(var1, v1, v2)];
+            // ins.append(&mut insts);
+            // (ins, res, alloc)
+            (vec![Inst::ILt(var1.clone(), v1, v2)], var1, vec![])
         }
         Prim2::Greater => {
-            let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
-            let mut ins = vec![Inst::IGt(var1, v1, v2)];
-            ins.append(&mut insts);
-            (ins, res, alloc)
+            // let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
+            // let mut ins = vec![Inst::IGt(var1, v1, v2)];
+            // ins.append(&mut insts);
+            // (ins, res, alloc)
+            (vec![Inst::IGt(var1.clone(), v1, v2)], var1, vec![])
         }
     };
 
@@ -184,24 +186,24 @@ fn parse_prim2<'a, 'b>(
     (is1, res, a1)
 }
 
-fn bool_tail(cond: Arg, gen: &mut scope::Generator) -> (Vec<Inst>, Arg, Vec<Inst>) {
-    let store = gen.sym();
-    let true_branch = gen.sym();
-    let false_branch = gen.sym();
-    let after_branch = gen.sym();
-    let alloc = vec![Inst::IAlloc(store.clone())];
-    let res = gen.sym();
+// fn bool_tail(cond: Arg, gen: &mut scope::Generator) -> (Vec<Inst>, Arg, Vec<Inst>) {
+//     let store = gen.sym();
+//     let true_branch = gen.sym();
+//     let false_branch = gen.sym();
+//     let after_branch = gen.sym();
+//     let alloc = vec![Inst::IAlloc(store.clone())];
+//     let res = gen.sym();
 
-    let inst = vec![
-        Inst::IBrk(cond, true_branch.clone(), false_branch.clone()),
-        Inst::ILabel(true_branch.to_string()),
-        Inst::IStore(store.clone(), Arg::Const(TRUE_CONST)),
-        Inst::IJmp(after_branch.clone()),
-        Inst::ILabel(false_branch.to_string()),
-        Inst::IStore(store.clone(), Arg::Const(FALSE_CONST)),
-        Inst::IJmp(after_branch.clone()),
-        Inst::ILabel(after_branch.to_string()),
-        Inst::ILoad(res.clone(), store),
-    ];
-    (inst, res, alloc)
-}
+//     let inst = vec![
+//         Inst::IBrk(cond, true_branch.clone(), false_branch.clone()),
+//         Inst::ILabel(true_branch.to_string()),
+//         Inst::IStore(store.clone(), Arg::Const(TRUE_CONST)),
+//         Inst::IJmp(after_branch.clone()),
+//         Inst::ILabel(false_branch.to_string()),
+//         Inst::IStore(store.clone(), Arg::Const(FALSE_CONST)),
+//         Inst::IJmp(after_branch.clone()),
+//         Inst::ILabel(after_branch.to_string()),
+//         Inst::ILoad(res.clone(), store),
+//     ];
+//     (inst, res, alloc)
+// }

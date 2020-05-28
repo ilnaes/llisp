@@ -1,3 +1,4 @@
+use crate::backend::llvm::VType;
 use crate::expr::expr::*;
 use std::collections::{HashMap, HashSet};
 use std::iter::Extend;
@@ -35,17 +36,27 @@ impl<'a, 'b> PartialEq for TypeExpr<'a, 'b> {
 
 impl<'a, 'b> Eq for TypeExpr<'a, 'b> {}
 
-pub type TypeEnv<'a, 'b> = HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>>;
+pub struct TypeEnv<'a, 'b>(pub HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>>);
 
-pub fn new_typenv<'a, 'b>(exprs: &'b [Expr<'a>]) -> Result<TypeEnv<'a, 'b>, String> {
-    let mut eqns = HashSet::new();
-
-    for e in exprs.iter() {
-        extract_eqns(e, None, &mut eqns);
+impl<'a, 'b> TypeEnv<'a, 'b> {
+    pub fn get_vtype(&self, e: &'b Expr<'a>, env: Option<&'b Expr<'a>>) -> Result<VType, String> {
+        match self.0.get(&TypeExpr::TVar(&e, env)) {
+            Some(TypeExpr::TNum) => Ok(VType::I64),
+            Some(TypeExpr::TBool) => Ok(VType::I1),
+            _ => Err("Compile error: Unbound type".to_string()),
+        }
     }
 
-    let eqns: Vec<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)> = eqns.into_iter().collect();
-    unify(eqns)
+    pub fn new(exprs: &'b [Expr<'a>]) -> Result<TypeEnv<'a, 'b>, String> {
+        let mut eqns = HashSet::new();
+
+        for e in exprs.iter() {
+            extract_eqns(e, None, &mut eqns);
+        }
+
+        let eqns: Vec<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)> = eqns.into_iter().collect();
+        unify(eqns)
+    }
 }
 
 fn subst<'a, 'b>(
@@ -103,7 +114,7 @@ fn unify<'a, 'b>(
     // }
 
     let res: HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>> = subs.into_iter().collect();
-    Ok(res)
+    Ok(TypeEnv(res))
 }
 
 // extracts a TVar corresponding to a str from a binding

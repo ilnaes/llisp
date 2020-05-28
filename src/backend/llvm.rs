@@ -1,11 +1,11 @@
 pub mod compile;
 pub mod scope;
 
-// #[derive(Debug, Clone)]
-// pub enum VType {
-//     I1,
-//     I64,
-// }
+#[derive(Debug, Clone)]
+pub enum VType {
+    I1,
+    I64,
+}
 
 #[derive(Debug, Clone)]
 pub enum Var {
@@ -37,11 +37,11 @@ pub enum Inst {
     IMul(Arg, Arg, Arg),
     IGt(Arg, Arg, Arg),
     ILt(Arg, Arg, Arg),
-    IEq(Arg, Arg, Arg),
+    IEq(VType, Arg, Arg, Arg),
     IRet(Arg),
-    IAlloc(Arg),
-    IStore(Arg, Arg),
-    ILoad(Arg, Arg),
+    IAlloc(VType, Arg),
+    IStore(VType, Arg, Arg),
+    ILoad(VType, Arg, Arg),
     ILabel(String),
     IBrk(Arg, Arg, Arg), // conditional break
     IJmp(Arg),           // unconditional break
@@ -55,12 +55,12 @@ pub struct FunDef {
     pub inst: Vec<Inst>,
 }
 
-// pub fn typ_to_ll(t: &VType) -> String {
-//     match t {
-//         VType::I1 => String::from("i1"),
-//         VType::I64 => String::from("i64"),
-//     }
-// }
+pub fn typ_to_ll(t: &VType) -> String {
+    match t {
+        VType::I1 => String::from("i1"),
+        VType::I64 => String::from("i64"),
+    }
+}
 
 pub fn var_to_ll(v: &Var) -> String {
     match v {
@@ -108,9 +108,10 @@ pub fn inst_to_ll(is: &Inst) -> String {
             arg_to_ll(arg1),
             arg_to_ll(arg2)
         ),
-        Inst::IEq(dst, arg1, arg2) => format!(
-            "  {} = icmp eq i64 {}, {}",
+        Inst::IEq(typ, dst, arg1, arg2) => format!(
+            "  {} = icmp eq {} {}, {}",
             arg_to_ll(dst),
+            typ_to_ll(typ),
             arg_to_ll(arg1),
             arg_to_ll(arg2)
         ),
@@ -126,15 +127,21 @@ pub fn inst_to_ll(is: &Inst) -> String {
             arg_to_ll(arg1),
             arg_to_ll(arg2)
         ),
-        Inst::IAlloc(dst) => format!("  {} = alloca i64, align 8", arg_to_ll(dst)),
-        Inst::IStore(dst, src) => format!(
-            "  store i64 {}, i64* {}, align 8",
+        Inst::IAlloc(typ, dst) => {
+            format!("  {} = alloca {}, align 8", arg_to_ll(dst), typ_to_ll(typ))
+        }
+        Inst::IStore(typ, dst, src) => format!(
+            "  store {} {}, {}* {}, align 8",
+            typ_to_ll(typ),
             arg_to_ll(src),
+            typ_to_ll(typ),
             arg_to_ll(dst)
         ),
-        Inst::ILoad(dst, src) => format!(
-            "  {} = load i64, i64* {}, align 8",
+        Inst::ILoad(typ, dst, src) => format!(
+            "  {} = load {}, {}* {}, align 8",
             arg_to_ll(dst),
+            typ_to_ll(typ),
+            typ_to_ll(typ),
             arg_to_ll(src)
         ),
         Inst::ILabel(l) => format!("{}:", l),

@@ -8,7 +8,7 @@ use crate::backend::llvm::*;
 pub fn compile_to_string(s: &str) -> Result<String, String> {
     let sexps = sexp::parse_sexps(s)?;
     let ast = expr::parse_ast(sexps.as_slice())?;
-    let typenv = types::new_typenv(ast.as_slice())?;
+    let typenv = types::TypeEnv::new(ast.as_slice())?;
     let mut gen = scope::Generator::new();
 
     let (mut insts, var, mut alloc) = ast.iter().fold(

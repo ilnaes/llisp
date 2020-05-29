@@ -3,8 +3,8 @@ use super::*;
 use crate::expr::expr::*;
 use crate::types::*;
 
-// const TRUE_CONST: i64 = 0x2;
-// const FALSE_CONST: i64 = 0x6;
+const TRUE_CONST: i64 = 0x6;
+const FALSE_CONST: i64 = 0x2;
 
 pub fn compile_expr<'a, 'b>(
     expr: &'b Expr<'a>,
@@ -41,6 +41,28 @@ pub fn compile_expr<'a, 'b>(
         Expr::EId(x) => {
             // static checkers will/should catch this
             (vec![], scope.get(x).unwrap(), vec![])
+        }
+        Expr::EPrint(e) => {
+            let (mut is1, v1, mut alloc1) = compile_expr(e, scope.clone(), gen, env, typenv);
+
+            if let Ok(VType::I1) = typenv.get_vtype(e, env) {
+                let (mut is2, v2, mut alloc2) = bool_tail(v1.clone(), gen);
+
+                alloc1.append(&mut alloc2);
+                is1.append(&mut is2);
+                is1.push(Inst::ICall(
+                    VType::Void,
+                    Arg::AVar(Var::Global("print".to_string())),
+                    vec![v2],
+                ));
+            } else {
+                is1.push(Inst::ICall(
+                    VType::Void,
+                    Arg::AVar(Var::Global("print".to_string())),
+                    vec![v1.clone()],
+                ));
+            }
+            (is1, v1, alloc1)
         }
         Expr::EPrim2(op, e1, e2) => parse_prim2(op, e1, e2, scope.clone(), gen, env, typenv),
         Expr::ELet(bind, body) => {
@@ -186,24 +208,24 @@ fn parse_prim2<'a, 'b>(
     (is1, res, a1)
 }
 
-// fn bool_tail(cond: Arg, gen: &mut scope::Generator) -> (Vec<Inst>, Arg, Vec<Inst>) {
-//     let store = gen.sym();
-//     let true_branch = gen.sym();
-//     let false_branch = gen.sym();
-//     let after_branch = gen.sym();
-//     let alloc = vec![Inst::IAlloc(store.clone())];
-//     let res = gen.sym();
+fn bool_tail(cond: Arg, gen: &mut scope::Generator) -> (Vec<Inst>, Arg, Vec<Inst>) {
+    let store = gen.sym();
+    let true_branch = gen.sym();
+    let false_branch = gen.sym();
+    let after_branch = gen.sym();
+    let alloc = vec![Inst::IAlloc(VType::I64, store.clone())];
+    let res = gen.sym();
 
-//     let inst = vec![
-//         Inst::IBrk(cond, true_branch.clone(), false_branch.clone()),
-//         Inst::ILabel(true_branch.to_string()),
-//         Inst::IStore(store.clone(), Arg::Const(TRUE_CONST)),
-//         Inst::IJmp(after_branch.clone()),
-//         Inst::ILabel(false_branch.to_string()),
-//         Inst::IStore(store.clone(), Arg::Const(FALSE_CONST)),
-//         Inst::IJmp(after_branch.clone()),
-//         Inst::ILabel(after_branch.to_string()),
-//         Inst::ILoad(res.clone(), store),
-//     ];
-//     (inst, res, alloc)
-// }
+    let inst = vec![
+        Inst::IBrk(cond, true_branch.clone(), false_branch.clone()),
+        Inst::ILabel(true_branch.to_string()),
+        Inst::IStore(VType::I64, store.clone(), Arg::Const(TRUE_CONST)),
+        Inst::IJmp(after_branch.clone()),
+        Inst::ILabel(false_branch.to_string()),
+        Inst::IStore(VType::I64, store.clone(), Arg::Const(FALSE_CONST)),
+        Inst::IJmp(after_branch.clone()),
+        Inst::ILabel(after_branch.to_string()),
+        Inst::ILoad(VType::I64, res.clone(), store),
+    ];
+    (inst, res, alloc)
+}

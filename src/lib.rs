@@ -25,8 +25,11 @@ pub fn compile_to_string(s: &str) -> Result<String, String> {
     alloc.append(&mut insts);
     alloc.push(backend::llvm::Inst::IRet(var));
 
+    let prelude = "declare void @print(i64)\n";
+
     Ok(format!(
-        "{}",
+        "{}{}",
+        prelude,
         fundef_to_ll(FunDef {
             name: "our_main".to_string(),
             args: vec![],

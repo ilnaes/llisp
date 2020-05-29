@@ -43,7 +43,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         match self.0.get(&TypeExpr::TVar(&e, env)) {
             Some(TypeExpr::TNum) => Ok(VType::I64),
             Some(TypeExpr::TBool) => Ok(VType::I1),
-            _ => Err("Compile error: Unbound type".to_string()),
+            _ => Err(format!("Compile error: Unbound type {:?} {:?}", e, env)),
         }
     }
 
@@ -110,7 +110,7 @@ fn unify<'a, 'b>(
     }
 
     // for e in subs.iter() {
-    //     println!("{:?}\n  == {:?}", e.0, e.1);
+    //     eprintln!("{:?}\n  == {:?}", e.0, e.1);
     // }
 
     let res: HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>> = subs.into_iter().collect();
@@ -139,6 +139,7 @@ fn extract_eid<'a, 'b>(
             }
             extract_eid(e2, id, env)
         }
+        Expr::EPrint(e) => extract_eid(e, id, env),
         Expr::EIf(cond, e1, e2) => {
             let res = extract_eid(cond, id, env);
             if res.is_some() {
@@ -208,6 +209,10 @@ fn extract_eqns<'a, 'b>(
                 }
             }
             extract_eqns(body, Some(e), set);
+        }
+        Expr::EPrint(expr) => {
+            set.insert((TVar(expr, env), TVar(e, env)));
+            extract_eqns(expr, env, set);
         }
     }
 }

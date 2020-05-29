@@ -5,7 +5,7 @@ use regex::Regex;
 pub mod expr;
 
 const FORBIDDEN_ID_REGEX: &'static str = r"[^\w\-\?]+";
-const RESERVED_NAMES: &'static [&'static str] = &["let", "if"];
+const RESERVED_NAMES: &'static [&'static str] = &["let", "if", "print"];
 
 fn parse_binding<'a>(b: &Sexp<'a>) -> Result<Binding<'a>, String> {
     match b {
@@ -34,6 +34,7 @@ fn parse<'a>(sexp: &Sexp<'a>) -> Result<Expr<'a>, String> {
             }
         }
         List(v) => match &v[..] {
+            [Atom("print"), e] => Ok(EPrint(Box::new(parse(e)?))),
             [Atom("+"), e1, e2] => Ok(EPrim2(Add, Box::new(parse(e1)?), Box::new(parse(e2)?))),
             [Atom("-"), e1, e2] => Ok(EPrim2(Minus, Box::new(parse(e1)?), Box::new(parse(e2)?))),
             [Atom("*"), e1, e2] => Ok(EPrim2(Times, Box::new(parse(e1)?), Box::new(parse(e2)?))),

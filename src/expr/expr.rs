@@ -6,6 +6,7 @@ pub enum Expr<'a> {
     EPrim2(Prim2, Box<Expr<'a>>, Box<Expr<'a>>),
     ELet(Vec<Binding<'a>>, Box<Expr<'a>>),
     EIf(Box<Expr<'a>>, Box<Expr<'a>>, Box<Expr<'a>>),
+    EPrint(Box<Expr<'a>>),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

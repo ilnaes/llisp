@@ -5,12 +5,13 @@ pub mod scope;
 pub enum VType {
     I1,
     I64,
+    Void,
 }
 
 #[derive(Debug, Clone)]
 pub enum Var {
     Local(String),
-    // Global(String),
+    Global(String),
 }
 
 #[derive(Debug, Clone)]
@@ -23,7 +24,7 @@ impl Arg {
     pub fn to_string(&self) -> String {
         match self {
             Arg::Const(n) => format!("{}", n),
-            Arg::AVar(Var::Local(s)) => s.clone(),
+            Arg::AVar(Var::Global(s)) | Arg::AVar(Var::Local(s)) => s.clone(),
         }
     }
 }
@@ -45,7 +46,7 @@ pub enum Inst {
     ILabel(String),
     IBrk(Arg, Arg, Arg), // conditional break
     IJmp(Arg),           // unconditional break
-                         // ICall(Arg),
+    ICall(VType, Arg, Vec<Arg>),
 }
 
 #[derive(Debug, Clone)]
@@ -59,13 +60,14 @@ pub fn typ_to_ll(t: &VType) -> String {
     match t {
         VType::I1 => String::from("i1"),
         VType::I64 => String::from("i64"),
+        VType::Void => String::from("void"),
     }
 }
 
 pub fn var_to_ll(v: &Var) -> String {
     match v {
         Var::Local(s) => format!("%{}", s.replace("-", "_")),
-        // Var::Global(s) => format!("@{}", s),
+        Var::Global(s) => format!("@{}", s),
     }
 }
 
@@ -152,7 +154,18 @@ pub fn inst_to_ll(is: &Inst) -> String {
             arg_to_ll(els)
         ),
         Inst::IJmp(dst) => format!("  br label {}", arg_to_ll(dst)),
-        // Inst::ICall(arg) => format!("  call void {}()", arg_to_ll(arg)),
+        Inst::ICall(typ, func, args) => {
+            let mut inj = String::new();
+            for (i, a) in args.into_iter().enumerate() {
+                inj.push_str("i64 ");
+                inj.push_str(&arg_to_ll(a));
+                if i < args.len() - 1 {
+                    inj.push_str(&", ");
+                }
+            }
+
+            format!("  call {} {}({})", typ_to_ll(typ), arg_to_ll(func), inj)
+        }
         Inst::IRet(arg) => format!("  ret i64 {}", arg_to_ll(arg)),
     }
 }

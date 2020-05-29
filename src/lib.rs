@@ -2,12 +2,17 @@ mod backend;
 mod expr;
 mod sexp;
 mod types;
+mod well_def;
 
 use crate::backend::llvm::*;
+use im::HashSet;
 
 pub fn compile_to_string(s: &str) -> Result<String, String> {
     let sexps = sexp::parse_sexps(s)?;
     let ast = expr::parse_ast(sexps.as_slice())?;
+    for expr in ast.iter() {
+        well_def::check(expr, HashSet::new())?;
+    }
     let typenv = types::TypeEnv::new(ast.as_slice())?;
     let mut gen = scope::Generator::new();
 
@@ -25,7 +30,7 @@ pub fn compile_to_string(s: &str) -> Result<String, String> {
     alloc.append(&mut insts);
     alloc.push(backend::llvm::Inst::IRet(var));
 
-    let prelude = "declare void @print(i64)\n";
+    let prelude = "declare void @print(i64)\n\n";
 
     Ok(format!(
         "{}{}",

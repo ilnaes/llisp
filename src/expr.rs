@@ -5,7 +5,8 @@ use regex::Regex;
 pub mod expr;
 
 const FORBIDDEN_ID_REGEX: &'static str = r"[^\w\-\?]+";
-const RESERVED_NAMES: &'static [&'static str] = &["let", "if", "print"];
+const RESERVED_NAMES: &'static [&'static str] =
+    &["let", "if", "print", "true", "false", "func", "def"];
 
 fn parse_binding<'a>(b: &Sexp<'a>) -> Result<Binding<'a>, String> {
     match b {

@@ -6,6 +6,7 @@
 
 #define TRUE 0x0000000000000006L
 #define FALSE 0x0000000000000002L
+#define HEAP_SIZE 100000
 
 #define NUM_MIN (- (1L << 62))
 #define NUM_MAX ((1L << 62) - 1)
@@ -16,6 +17,7 @@ extern void print(int64_t) asm("_print");
 extern void error(int64_t) asm("_error");
 
 int64_t *mem;
+int64_t alloced;
 
 void error(int64_t val) {
     switch(val) {
@@ -41,12 +43,19 @@ void print(int64_t val) {
 
 int64_t* new(int64_t size) {
     int64_t *res = mem;
+    alloced += size;
+
+    if (alloced > HEAP_SIZE) {
+        fprintf(stderr, "Heap exceeded\n");
+        exit(1);
+    }
+
     mem += size;
     return res;
 }
 
 int main() {
-  mem = calloc(100000, sizeof(int64_t));
+  mem = calloc(HEAP_SIZE, sizeof(int64_t));
   int64_t result = our_main();
   print(result);
   return 0;

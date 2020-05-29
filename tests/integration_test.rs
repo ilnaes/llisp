@@ -102,6 +102,6 @@ run_tests! {
     print1: ("(if (print (== 1 1)) 0 1)", Runs("true\n0")),
     print2: ("(if (== 1 1) 0 (print 1))", Runs("0")),
 
-    welldef_error1: ("(if (< 1 0) 0 x)", ErrC("Welldef error")),
-    welldef_error2: ("(let ((x 1) (y 2) (x 1)) x)", ErrC("Welldef error")),
+    welldef_error1: ("(if (< 1 0) 0 x)", ErrC("Welldef error: Unbound")),
+    welldef_error2: ("(let ((x 1) (y 2) (x 1)) x)", ErrC("Welldef error: Duplicate")),
 }

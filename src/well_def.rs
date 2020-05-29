@@ -6,7 +6,6 @@ pub fn check<'a, 'b>(expr: &'b Expr<'a>, scope: HashSet<&'a str>) -> Result<(), 
     match expr {
         Expr::ENum(_) | Expr::EBool(_) => {}
         Expr::EId(x) => {
-            // static checkers will/should catch this
             if !scope.contains(x) {
                 return Err(format!("Welldef error: Unbound identifier {}", x));
             }

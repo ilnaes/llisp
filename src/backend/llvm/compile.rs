@@ -15,7 +15,7 @@ pub fn compile_expr<'a, 'b>(
 ) -> (Vec<Inst>, Arg, Vec<Inst>) {
     match expr {
         Expr::ENum(n) => {
-            let var = gen.sym();
+            let var = gen.sym(true);
             (
                 vec![Inst::IAdd64(
                     var.clone(),
@@ -27,12 +27,17 @@ pub fn compile_expr<'a, 'b>(
             )
         }
         Expr::EBool(b) => {
-            let var = gen.sym();
+            let var = gen.sym(true);
             (
-                vec![Inst::IAdd1(
+                // vec![Inst::IAdd1(
+                //     var.clone(),
+                //     Arg::Const(0),
+                //     Arg::Const(if *b { 1 } else { 0 }),
+                // )],
+                vec![Inst::IAdd64(
                     var.clone(),
                     Arg::Const(0),
-                    Arg::Const(if *b { 1 } else { 0 }),
+                    Arg::Const(if *b { TRUE_CONST } else { FALSE_CONST }),
                 )],
                 var,
                 vec![],
@@ -41,28 +46,6 @@ pub fn compile_expr<'a, 'b>(
         Expr::EId(x) => {
             // static checkers will/should catch this
             (vec![], scope.get(x).unwrap(), vec![])
-        }
-        Expr::EPrint(e) => {
-            let (mut is1, v1, mut alloc1) = compile_expr(e, scope.clone(), gen, env, typenv);
-
-            if let Ok(VType::I1) = typenv.get_vtype(e, env) {
-                let (mut is2, v2, mut alloc2) = bool_tail(v1.clone(), gen);
-
-                alloc1.append(&mut alloc2);
-                is1.append(&mut is2);
-                is1.push(Inst::ICall(
-                    VType::Void,
-                    Arg::AVar(Var::Global("print".to_string())),
-                    vec![v2],
-                ));
-            } else {
-                is1.push(Inst::ICall(
-                    VType::Void,
-                    Arg::AVar(Var::Global("print".to_string())),
-                    vec![v1.clone()],
-                ));
-            }
-            (is1, v1, alloc1)
         }
         Expr::EPrim2(op, e1, e2) => parse_prim2(op, e1, e2, scope.clone(), gen, env, typenv),
         Expr::ELet(bind, body) => {
@@ -85,23 +68,49 @@ pub fn compile_expr<'a, 'b>(
             alloc.append(&mut alloc1);
             (is1, v, alloc)
         }
+        Expr::EPrint(e) => {
+            let (mut is1, v1, mut alloc1) = compile_expr(e, scope.clone(), gen, env, typenv);
+
+            // if let Ok(VType::I1) = typenv.get_vtype(e, env) {
+            //     let (mut is2, v2, mut alloc2) = bool_tail(v1.clone(), gen);
+
+            //     alloc1.append(&mut alloc2);
+            //     is1.append(&mut is2);
+            //     is1.push(Inst::ICall(
+            //         VType::Void,
+            //         Arg::AVar(Var::Global("print".to_string())),
+            //         vec![v2],
+            //     ));
+            // } else {
+            is1.push(Inst::ICall(
+                VType::Void,
+                Arg::AVar(Var::Global("print".to_string())),
+                vec![v1.clone()],
+            ));
+            // }
+            (is1, v1, alloc1)
+        }
         Expr::EIf(cond, e1, e2) => {
             let (mut ins1, v1, mut alloc1) = compile_expr(cond, scope.clone(), gen, env, typenv);
             let (mut ins2, v2, mut alloc2) = compile_expr(e1, scope.clone(), gen, env, typenv);
             let (mut ins3, v3, mut alloc3) = compile_expr(e2, scope.clone(), gen, env, typenv);
 
-            let store = gen.sym();
-            let true_branch = gen.sym();
+            let cmp = gen.sym(true);
+
+            let store = gen.sym(true);
+            let true_branch = gen.sym(true);
             let true_label = true_branch.to_string();
-            let false_branch = gen.sym();
+            let false_branch = gen.sym(true);
             let false_label = false_branch.to_string();
-            let after = gen.sym();
+            let after = gen.sym(true);
             let after_label = after.to_string();
 
-            let typ = typenv.get_vtype(&expr, env).unwrap();
+            // let typ = typenv.get_vtype(&expr, env).unwrap();
+            let typ = VType::I64;
 
             ins1.append(&mut vec![
-                Inst::IBrk(v1, true_branch, false_branch),
+                Inst::IEq(typ.clone(), cmp.clone(), v1.clone(), Arg::Const(TRUE_CONST)),
+                Inst::IBrk(cmp, true_branch, false_branch),
                 Inst::ILabel(true_label),
             ]);
 
@@ -121,7 +130,7 @@ pub fn compile_expr<'a, 'b>(
             ]);
             alloc1.append(&mut alloc3);
 
-            let res = gen.sym();
+            let res = gen.sym(true);
             ins1.push(Inst::ILoad(typ.clone(), res.clone(), store.clone()));
             alloc1.push(Inst::IAlloc(typ.clone(), store));
 
@@ -141,8 +150,8 @@ fn parse_prim2<'a, 'b>(
 ) -> (Vec<Inst>, Arg, Vec<Inst>) {
     let (mut is1, v1, mut a1) = compile_expr(e1, scope.clone(), gen, env, typenv);
     let (mut is2, v2, mut a2) = compile_expr(e2, scope.clone(), gen, env, typenv);
-    let var1 = gen.sym();
-    let var2 = gen.sym();
+    let var1 = gen.sym(true);
+    let var2 = gen.sym(true);
 
     let (mut op_is, res, mut a3) = match op {
         Prim2::Add => (
@@ -162,8 +171,8 @@ fn parse_prim2<'a, 'b>(
             vec![],
         ),
         Prim2::Times => {
-            let var3 = gen.sym();
-            let var4 = gen.sym();
+            let var3 = gen.sym(true);
+            let var4 = gen.sym(true);
             (
                 vec![
                     Inst::IAshr(var1.clone(), v1, Arg::Const(1)),
@@ -176,27 +185,26 @@ fn parse_prim2<'a, 'b>(
             )
         }
         Prim2::Equal => {
-            // let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
-            // let mut ins = vec![Inst::IEq(var1, v1, v2)];
-            // ins.append(&mut insts);
-            // (ins, res, alloc)
-
-            let typ = typenv.get_vtype(&e1, env).unwrap();
-            (vec![Inst::IEq(typ, var1.clone(), v1, v2)], var1, vec![])
+            let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
+            let mut ins = vec![Inst::IEq(VType::I64, var1, v1, v2)];
+            ins.append(&mut insts);
+            (ins, res, alloc)
+            // let typ = typenv.get_vtype(&e1, env).unwrap();
+            // (vec![Inst::IEq(typ, var1.clone(), v1, v2)], var1, vec![])
         }
         Prim2::Less => {
-            // let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
-            // let mut ins = vec![Inst::ILt(var1, v1, v2)];
-            // ins.append(&mut insts);
-            // (ins, res, alloc)
-            (vec![Inst::ILt(var1.clone(), v1, v2)], var1, vec![])
+            let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
+            let mut ins = vec![Inst::ILt(var1, v1, v2)];
+            ins.append(&mut insts);
+            (ins, res, alloc)
+            // (vec![Inst::ILt(var1.clone(), v1, v2)], var1, vec![])
         }
         Prim2::Greater => {
-            // let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
-            // let mut ins = vec![Inst::IGt(var1, v1, v2)];
-            // ins.append(&mut insts);
-            // (ins, res, alloc)
-            (vec![Inst::IGt(var1.clone(), v1, v2)], var1, vec![])
+            let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
+            let mut ins = vec![Inst::IGt(var1, v1, v2)];
+            ins.append(&mut insts);
+            (ins, res, alloc)
+            // (vec![Inst::IGt(var1.clone(), v1, v2)], var1, vec![])
         }
     };
 
@@ -209,12 +217,12 @@ fn parse_prim2<'a, 'b>(
 }
 
 fn bool_tail(cond: Arg, gen: &mut scope::Generator) -> (Vec<Inst>, Arg, Vec<Inst>) {
-    let store = gen.sym();
-    let true_branch = gen.sym();
-    let false_branch = gen.sym();
-    let after_branch = gen.sym();
+    let store = gen.sym(true);
+    let true_branch = gen.sym(true);
+    let false_branch = gen.sym(true);
+    let after_branch = gen.sym(true);
     let alloc = vec![Inst::IAlloc(VType::I64, store.clone())];
-    let res = gen.sym();
+    let res = gen.sym(true);
 
     let inst = vec![
         Inst::IBrk(cond, true_branch.clone(), false_branch.clone()),

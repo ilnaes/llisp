@@ -1,4 +1,9 @@
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum Def<'a> {
+    FuncDef(String, Vec<&'a str>, Vec<Expr<'a>>),
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Expr<'a> {
     ENum(i64),
     EBool(bool),

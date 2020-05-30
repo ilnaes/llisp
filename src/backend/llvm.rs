@@ -3,7 +3,7 @@ pub mod scope;
 
 #[derive(Debug, Clone)]
 pub enum VType {
-    I1,
+    // I1,
     I64,
     Void,
 }
@@ -32,7 +32,7 @@ impl Arg {
 #[derive(Debug, Clone)]
 pub enum Inst {
     IAdd64(Arg, Arg, Arg),
-    IAdd1(Arg, Arg, Arg),
+    // IAdd1(Arg, Arg, Arg),
     ISub(Arg, Arg, Arg),
     IAshr(Arg, Arg, Arg),
     IMul(Arg, Arg, Arg),
@@ -58,7 +58,7 @@ pub struct FunDef {
 
 pub fn typ_to_ll(t: &VType) -> String {
     match t {
-        VType::I1 => String::from("i1"),
+        // VType::I1 => String::from("i1"),
         VType::I64 => String::from("i64"),
         VType::Void => String::from("void"),
     }
@@ -86,12 +86,12 @@ pub fn inst_to_ll(is: &Inst) -> String {
             arg_to_ll(arg1),
             arg_to_ll(arg2)
         ),
-        Inst::IAdd1(dst, arg1, arg2) => format!(
-            "  {} = add i1 {}, {}",
-            arg_to_ll(dst),
-            arg_to_ll(arg1),
-            arg_to_ll(arg2)
-        ),
+        // Inst::IAdd1(dst, arg1, arg2) => format!(
+        //     "  {} = add i1 {}, {}",
+        //     arg_to_ll(dst),
+        //     arg_to_ll(arg1),
+        //     arg_to_ll(arg2)
+        // ),
         Inst::ISub(dst, arg1, arg2) => format!(
             "  {} = sub i64 {}, {}",
             arg_to_ll(dst),

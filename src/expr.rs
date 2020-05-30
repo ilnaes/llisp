@@ -1,24 +1,46 @@
 use crate::sexp::{Sexp, Sexp::*};
-use expr::{Binding, Expr, Expr::*, Prim2::*};
+use expr::{Expr::*, Prim2::*, *};
 use regex::Regex;
 
 pub mod expr;
 
 const FORBIDDEN_ID_REGEX: &'static str = r"[^\w\-\?]+";
 const RESERVED_NAMES: &'static [&'static str] =
-    &["let", "if", "print", "true", "false", "func", "def"];
+    &["let", "if", "print", "true", "false", "func", "defn"];
 
-fn parse_binding<'a>(b: &Sexp<'a>) -> Result<Binding<'a>, String> {
-    match b {
-        List(l) => match &l[..] {
-            [Atom(x), e] => Ok(Binding(x, parse(e)?)),
-            _ => return Err(format!("Parse error: binding {:?}", b)),
+// (defn f (args) (body))
+fn parse_def<'a>(sexp: &Sexp<'a>) -> Result<Def<'a>, String> {
+    match sexp {
+        Atom(_) => Err(format!("Parse error: Invalid def {:?}", sexp)),
+        List(v) => match &v[..] {
+            [Atom("defn"), Atom(f), List(args), body] => {
+                let mut args_vec: Vec<&'a str> = Vec::new();
+                for a in args.into_iter() {
+                    match a {
+                        Atom(x) => args_vec.push(x),
+                        _ => return Err(format!("Parse error: Invalid param {:?}", a)),
+                    }
+                }
+
+                let body_vec = match body {
+                    Atom(_) => vec![parse_expr(body)?],
+                    List(l) => {
+                        let mut res = Vec::new();
+                        for s in l.into_iter() {
+                            res.push(parse_expr(s)?);
+                        }
+                        res
+                    }
+                };
+
+                Ok(Def::FuncDef(f.to_string(), args_vec, body_vec))
+            }
+            _ => Err(format!("Parse error: Not proper def {:?}", sexp)),
         },
-        _ => return Err(format!("Parse error: binding {:?}", b)),
     }
 }
 
-fn parse<'a>(sexp: &Sexp<'a>) -> Result<Expr<'a>, String> {
+fn parse_expr<'a>(sexp: &Sexp<'a>) -> Result<Expr<'a>, String> {
     match sexp {
         Atom("true") => Ok(EBool(true)),
         Atom("false") => Ok(EBool(false)),
@@ -35,32 +57,66 @@ fn parse<'a>(sexp: &Sexp<'a>) -> Result<Expr<'a>, String> {
             }
         }
         List(v) => match &v[..] {
-            [Atom("print"), e] => Ok(EPrint(Box::new(parse(e)?))),
-            [Atom("+"), e1, e2] => Ok(EPrim2(Add, Box::new(parse(e1)?), Box::new(parse(e2)?))),
-            [Atom("-"), e1, e2] => Ok(EPrim2(Minus, Box::new(parse(e1)?), Box::new(parse(e2)?))),
-            [Atom("*"), e1, e2] => Ok(EPrim2(Times, Box::new(parse(e1)?), Box::new(parse(e2)?))),
-            [Atom("<"), e1, e2] => Ok(EPrim2(Less, Box::new(parse(e1)?), Box::new(parse(e2)?))),
-            [Atom(">"), e1, e2] => Ok(EPrim2(Greater, Box::new(parse(e1)?), Box::new(parse(e2)?))),
-            [Atom("=="), e1, e2] => Ok(EPrim2(Equal, Box::new(parse(e1)?), Box::new(parse(e2)?))),
+            [Atom("print"), e] => Ok(EPrint(Box::new(parse_expr(e)?))),
+            [Atom("+"), e1, e2] => Ok(EPrim2(
+                Add,
+                Box::new(parse_expr(e1)?),
+                Box::new(parse_expr(e2)?),
+            )),
+            [Atom("-"), e1, e2] => Ok(EPrim2(
+                Minus,
+                Box::new(parse_expr(e1)?),
+                Box::new(parse_expr(e2)?),
+            )),
+            [Atom("*"), e1, e2] => Ok(EPrim2(
+                Times,
+                Box::new(parse_expr(e1)?),
+                Box::new(parse_expr(e2)?),
+            )),
+            [Atom("<"), e1, e2] => Ok(EPrim2(
+                Less,
+                Box::new(parse_expr(e1)?),
+                Box::new(parse_expr(e2)?),
+            )),
+            [Atom(">"), e1, e2] => Ok(EPrim2(
+                Greater,
+                Box::new(parse_expr(e1)?),
+                Box::new(parse_expr(e2)?),
+            )),
+            [Atom("=="), e1, e2] => Ok(EPrim2(
+                Equal,
+                Box::new(parse_expr(e1)?),
+                Box::new(parse_expr(e2)?),
+            )),
             [Atom("let"), List(l), e2] => Ok(ELet(
                 l.into_iter()
                     .map(parse_binding)
                     .collect::<Result<Vec<Binding<'a>>, String>>()?,
-                Box::new(parse(e2)?),
+                Box::new(parse_expr(e2)?),
             )),
             [Atom("if"), e1, e2, e3] => Ok(EIf(
-                Box::new(parse(e1)?),
-                Box::new(parse(e2)?),
-                Box::new(parse(e3)?),
+                Box::new(parse_expr(e1)?),
+                Box::new(parse_expr(e2)?),
+                Box::new(parse_expr(e3)?),
             )),
             _ => return Err(format!("Parse error: {:?}", sexp)),
         },
     }
 }
 
+fn parse_binding<'a>(b: &Sexp<'a>) -> Result<Binding<'a>, String> {
+    match b {
+        List(l) => match &l[..] {
+            [Atom(x), e] => Ok(Binding(x, parse_expr(e)?)),
+            _ => return Err(format!("Parse error: binding {:?}", b)),
+        },
+        _ => return Err(format!("Parse error: binding {:?}", b)),
+    }
+}
+
 pub fn parse_ast<'a>(sexps: &[Sexp<'a>]) -> Result<Vec<Expr<'a>>, String> {
     sexps
         .into_iter()
-        .map(parse)
+        .map(parse_expr)
         .collect::<Result<Vec<Expr<'a>>, String>>()
 }

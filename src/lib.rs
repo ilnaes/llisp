@@ -14,6 +14,7 @@ pub fn compile_to_string(s: &str) -> Result<String, String> {
         well_def::check(expr, HashSet::new())?;
     }
     let typenv = types::TypeEnv::new(ast.as_slice())?;
+
     let mut gen = scope::Generator::new();
 
     let (mut insts, var, mut alloc) = ast.iter().fold(

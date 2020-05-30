@@ -1,14 +1,16 @@
 use crate::backend::llvm::VType;
 use crate::expr::expr::*;
+use im;
 use std::collections::{HashMap, HashSet};
 use std::iter::Extend;
 use std::ptr;
 
 #[derive(Debug, Clone, Hash)]
 pub enum TypeExpr<'a, 'b> {
-    TVar(&'b Expr<'a>, Option<&'b Expr<'a>>), // an expression and its defining let (parent)
     TNum,
     TBool,
+    TVar(&'b Expr<'a>, Option<&'b Expr<'a>>), // an expression and its defining let (parent)
+    TFun(Vec<TypeExpr<'a, 'b>>, Box<TypeExpr<'a, 'b>>),
 }
 
 use TypeExpr::*;
@@ -39,19 +41,20 @@ impl<'a, 'b> Eq for TypeExpr<'a, 'b> {}
 pub struct TypeEnv<'a, 'b>(pub HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>>);
 
 impl<'a, 'b> TypeEnv<'a, 'b> {
-    pub fn get_vtype(&self, e: &'b Expr<'a>, env: Option<&'b Expr<'a>>) -> Result<VType, String> {
-        match self.0.get(&TypeExpr::TVar(&e, env)) {
-            Some(TypeExpr::TNum) => Ok(VType::I64),
-            Some(TypeExpr::TBool) => Ok(VType::I1),
-            _ => Err(format!("Compile error: Unbound type {:?} {:?}", e, env)),
-        }
-    }
+    // pub fn get_vtype(&self, e: &'b Expr<'a>, env: Option<&'b Expr<'a>>) -> Result<VType, String> {
+    //     match self.0.get(&TypeExpr::TVar(&e, env)) {
+    //         Some(TypeExpr::TNum) => Ok(VType::I64),
+    //         // Some(TypeExpr::TBool) => Ok(VType::I1),
+    //         _ => Err(format!("Compile error: Unbound type {:?} {:?}", e, env)),
+    //     }
+    // }
 
     pub fn new(exprs: &'b [Expr<'a>]) -> Result<TypeEnv<'a, 'b>, String> {
         let mut eqns = HashSet::new();
+        let origins = im::HashMap::new();
 
         for e in exprs.iter() {
-            extract_eqns(e, None, &mut eqns);
+            extract_expr_eqns(e, None, &mut eqns, origins.clone());
         }
 
         let eqns: Vec<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)> = eqns.into_iter().collect();
@@ -61,19 +64,25 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
 
 fn subst<'a, 'b>(
     e: TypeExpr<'a, 'b>,
-    from: TypeExpr<'a, 'b>,
+    from: &TypeExpr<'a, 'b>,
     to: TypeExpr<'a, 'b>,
 ) -> TypeExpr<'a, 'b> {
     match e {
         TNum => e,
         TBool => e,
         TVar(_, _) => {
-            if from == e {
+            if from == &e {
                 to
             } else {
                 e
             }
         }
+        TFun(args, ret) => TFun(
+            args.into_iter()
+                .map(|x| subst(x, from, to.clone()))
+                .collect(),
+            Box::new(subst(*ret, from, to.clone())),
+        ),
     }
 }
 
@@ -90,21 +99,30 @@ fn unify<'a, 'b>(
                 subs = subs
                     .into_iter()
                     .map(|x: (TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)| {
-                        (x.0, subst(x.1, texpr.clone(), other.clone()))
+                        (x.0, subst(x.1, &texpr, other.clone()))
                     })
                     .collect();
                 eqns = eqns
                     .into_iter()
                     .map(|x: (TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)| {
                         (
-                            subst(x.0, texpr.clone(), other.clone()),
-                            subst(x.1, texpr.clone(), other.clone()),
+                            subst(x.0, &texpr, other.clone()),
+                            subst(x.1, &texpr, other.clone()),
                         )
                     })
                     .collect();
                 subs.push((texpr, other))
             }
             Some((TypeExpr::TNum, TypeExpr::TNum)) | Some((TypeExpr::TBool, TypeExpr::TBool)) => {}
+            Some((TypeExpr::TFun(mut arg1, ret1), TypeExpr::TFun(mut arg2, ret2))) => {
+                if arg1.len() != arg2.len() {
+                    return Err("Type inference conflict".to_string());
+                }
+                for _ in 0..arg1.len() {
+                    eqns.push((arg1.pop().unwrap(), arg2.pop().unwrap()));
+                }
+                eqns.push((*ret1, *ret2));
+            }
             _ => return Err("Type inference conflict".to_string()),
         }
     }
@@ -174,45 +192,60 @@ fn extract_eid<'a, 'b>(
 }
 
 // returns a list of type equations
-fn extract_eqns<'a, 'b>(
+fn extract_expr_eqns<'a, 'b>(
     e: &'b Expr<'a>,
     env: Option<&'b Expr<'a>>,
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
+    origins: im::HashMap<&'a str, &'b Expr<'a>>,
 ) {
     match e {
         Expr::EId(_) => {}
         Expr::ENum(_) => {
-            set.insert((TVar(e, env), TNum));
+            set.insert((get_type(e, env, origins), TNum));
         }
         Expr::EBool(_) => {
-            set.insert((TVar(e, env), TBool));
+            set.insert((get_type(e, env, origins), TBool));
         }
-        Expr::EPrim2(op, e1, e2) => extract_prim2(e, op, e1, e2, env, set),
+        Expr::EPrim2(op, e1, e2) => extract_prim2(e, op, e1, e2, env, set, origins),
         Expr::EIf(cond, e1, e2) => {
-            extract_eqns(cond, env, set);
-            extract_eqns(e1, env, set);
-            extract_eqns(e2, env, set);
+            extract_expr_eqns(cond, env, set, origins.clone());
+            extract_expr_eqns(e1, env, set, origins.clone());
+            extract_expr_eqns(e2, env, set, origins.clone());
             set.extend(vec![
-                (TVar(cond, env), TBool),
-                (TVar(e1, env), TVar(e2, env)),
-                (TVar(e, env), TVar(e1, env)),
+                (get_type(cond, env, origins.clone()), TBool),
+                (
+                    get_type(e1, env, origins.clone()),
+                    get_type(e2, env, origins.clone()),
+                ),
+                (
+                    get_type(e, env, origins.clone()),
+                    get_type(e1, env, origins.clone()),
+                ),
             ]);
         }
         Expr::ELet(bind, body) => {
-            set.insert((TVar(e, env), TVar(body, Some(e))));
-
+            let mut new_origins = origins.clone();
             for Binding(x, exp) in bind {
-                extract_eqns(exp, env, set);
+                extract_expr_eqns(exp, env, set, origins.clone());
 
                 if let Some(y) = extract_eid(body, x, Some(e)) {
-                    set.insert((y, TVar(exp, env)));
+                    set.insert((y, get_type(exp, env, origins.clone())));
                 }
+                new_origins.insert(x, e);
             }
-            extract_eqns(body, Some(e), set);
+
+            set.insert((
+                get_type(e, env, origins.clone()),
+                get_type(body, Some(e), new_origins.clone()),
+            ));
+            extract_expr_eqns(body, Some(e), set, new_origins.clone());
         }
         Expr::EPrint(expr) => {
-            set.insert((TVar(expr, env), TVar(e, env)));
-            extract_eqns(expr, env, set);
+            set.insert((
+                get_type(expr, env, origins.clone()),
+                get_type(e, env, origins.clone()),
+            ));
+            extract_expr_eqns(expr, env, set, origins.clone());
         }
     }
 }
@@ -224,27 +257,47 @@ fn extract_prim2<'a, 'b>(
     e2: &'b Expr<'a>,
     env: Option<&'b Expr<'a>>,
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
+    origins: im::HashMap<&'a str, &'b Expr<'a>>,
 ) {
-    extract_eqns(e1, env, set);
-    extract_eqns(e2, env, set);
+    extract_expr_eqns(e1, env, set, origins.clone());
+    extract_expr_eqns(e2, env, set, origins.clone());
 
     match op {
         Prim2::Add | Prim2::Minus | Prim2::Times => {
             set.extend(vec![
-                (TVar(e1, env), TNum),
-                (TVar(e2, env), TNum),
-                (TVar(e, env), TNum),
+                (get_type(e1, env, origins.clone()), TNum),
+                (get_type(e2, env, origins.clone()), TNum),
+                (get_type(e, env, origins.clone()), TNum),
             ]);
         }
         Prim2::Less | Prim2::Greater => {
             set.extend(vec![
-                (TVar(e1, env), TNum),
-                (TVar(e2, env), TNum),
-                (TVar(e, env), TBool),
+                (get_type(e1, env, origins.clone()), TNum),
+                (get_type(e2, env, origins.clone()), TNum),
+                (get_type(e, env, origins.clone()), TBool),
             ]);
         }
         Prim2::Equal => {
-            set.extend(vec![(TVar(e1, env), TVar(e2, env)), (TVar(e, env), TBool)]);
+            set.extend(vec![
+                (
+                    get_type(e1, env, origins.clone()),
+                    get_type(e2, env, origins.clone()),
+                ),
+                (get_type(e, env, origins.clone()), TBool),
+            ]);
         }
+    }
+}
+
+fn get_type<'a, 'b>(
+    e: &'b Expr<'a>,
+    env: Option<&'b Expr<'a>>,
+    origins: im::HashMap<&'a str, &'b Expr<'a>>,
+) -> TypeExpr<'a, 'b> {
+    match e {
+        Expr::ENum(_) => TNum,
+        Expr::EBool(_) => TBool,
+        Expr::EId(s) => TVar(e, Some(origins.get(s).unwrap())),
+        e => TVar(e, env),
     }
 }

@@ -78,6 +78,8 @@ run_tests! {
     def_x1: ("(let ((x-y 5)) (- 1 x-y))", Runs("-4")),
     def_x2: ("(let ((x (let ((x 5)) (- x 1)))) (- x 1))", Runs("3")),
     let_nested: ("(let ((x_y (+ 5 (+ 10 20)))) (* x_y x_y))", Runs("1225")),
+    two_depth1: ("(let ((x 1)) (+ x (let ((y 2)) (+ x y))))", Runs("4")),
+    two_depth2: ("(let ((x 1)) (let ((y 2)) (+ x y)))", Runs("3")),
 
     fail: ("((1)", ErrC("Lex error")),
     fail2: ("(1))", ErrC("Lex error")),

@@ -1,4 +1,3 @@
-use crate::backend::llvm::VType;
 use crate::expr::expr::*;
 use im;
 use std::collections::{HashMap, HashSet};
@@ -9,8 +8,10 @@ use std::ptr;
 pub enum TypeExpr<'a, 'b> {
     TNum,
     TBool,
-    TVar(&'b Expr<'a>, Option<&'b Expr<'a>>), // an expression and its defining let (parent)
     TFun(Vec<TypeExpr<'a, 'b>>, Box<TypeExpr<'a, 'b>>),
+
+    // an expression and a pointer to when it's defined
+    TVar(&'b Expr<'a>, Option<&'b Expr<'a>>),
 }
 
 use TypeExpr::*;
@@ -29,6 +30,18 @@ impl<'a, 'b> PartialEq for TypeExpr<'a, 'b> {
                         (Some(loc1), Some(loc2)) => ptr::eq(*loc1, *loc2),
                         _ => false,
                     }
+                }
+            }
+            (TFun(a1, r1), TFun(a2, r2)) => {
+                if a1.len() != a2.len() {
+                    false
+                } else {
+                    for i in 0..a1.len() {
+                        if !a1[i].eq(&a2[i]) {
+                            return false;
+                        }
+                    }
+                    r1.eq(r2)
                 }
             }
             _ => false,
@@ -199,13 +212,7 @@ fn extract_expr_eqns<'a, 'b>(
     origins: im::HashMap<&'a str, &'b Expr<'a>>,
 ) {
     match e {
-        Expr::EId(_) => {}
-        Expr::ENum(_) => {
-            set.insert((get_type(e, env, origins), TNum));
-        }
-        Expr::EBool(_) => {
-            set.insert((get_type(e, env, origins), TBool));
-        }
+        Expr::EId(_) | Expr::ENum(_) | Expr::EBool(_) => {}
         Expr::EPrim2(op, e1, e2) => extract_prim2(e, op, e1, e2, env, set, origins),
         Expr::EIf(cond, e1, e2) => {
             extract_expr_eqns(cond, env, set, origins.clone());

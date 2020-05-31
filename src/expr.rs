@@ -33,7 +33,7 @@ fn parse_def<'a>(sexp: &Sexp<'a>) -> Result<Def<'a>, String> {
                     }
                 };
 
-                Ok(Def::FuncDef(f.to_string(), args_vec, body_vec))
+                Ok(Def::FuncDef(EId(f), args_vec, body_vec))
             }
             _ => Err(format!("Parse error: Not proper def {:?}", sexp)),
         },

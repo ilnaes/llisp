@@ -69,7 +69,7 @@ pub fn compile_expr<'a, 'b>(
             (is1, v, alloc)
         }
         Expr::EPrint(e) => {
-            let (mut is1, v1, mut alloc1) = compile_expr(e, scope.clone(), gen, env, typenv);
+            let (mut is1, v1, alloc1) = compile_expr(e, scope.clone(), gen, env, typenv);
 
             // if let Ok(VType::I1) = typenv.get_vtype(e, env) {
             //     let (mut is2, v2, mut alloc2) = bool_tail(v1.clone(), gen);

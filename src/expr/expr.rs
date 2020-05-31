@@ -1,6 +1,8 @@
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Def<'a> {
-    FuncDef(String, Vec<&'a str>, Vec<Expr<'a>>),
+    // first field will always be EId of string. it should just be string,
+    // but this is a dirty hack for type convenience
+    FuncDef(Expr<'a>, Vec<&'a str>, Vec<Expr<'a>>),
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

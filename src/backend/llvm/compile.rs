@@ -2,9 +2,23 @@ use super::scope::*;
 use super::*;
 use crate::expr::expr::*;
 use crate::types::*;
+use im;
 
 const TRUE_CONST: i64 = 0x6;
 const FALSE_CONST: i64 = 0x2;
+
+pub fn compile_defs<'a, 'b>(defs: &'b [Def<'a>]) {
+    let mut scope: im::HashMap<&'a str, &'b Expr<'a>> = im::HashMap::new();
+    for d in defs {
+        let Def::FuncDef(f, _, _) = d;
+        if let Expr::EId(name) = f {
+            scope.insert(name, f);
+        } else {
+            // will have already been caught by static checkers
+            panic!()
+        }
+    }
+}
 
 pub fn compile_expr<'a, 'b>(
     expr: &'b Expr<'a>,

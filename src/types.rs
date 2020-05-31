@@ -64,14 +64,149 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
 
     pub fn new(exprs: &'b [Expr<'a>]) -> Result<TypeEnv<'a, 'b>, String> {
         let mut eqns = HashSet::new();
-        let origins = im::HashMap::new();
+        let scope = im::HashMap::new();
 
         for e in exprs.iter() {
-            extract_expr_eqns(e, None, &mut eqns, origins.clone());
+            extract_expr_eqns(e, None, &mut eqns, scope.clone());
         }
 
         let eqns: Vec<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)> = eqns.into_iter().collect();
         unify(eqns)
+    }
+}
+
+fn extract_prog_eqns<'a, 'b>(
+    prog: &'b [Def<'a>],
+    set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
+) {
+    let mut scope = im::HashMap::new();
+
+    // gather all declared top level functions
+    for f in prog {
+        match f {
+            Def::FuncDef(name, _, _) => {
+                match name {
+                    Expr::EId(n) => scope.insert(*n, name),
+                    _ => panic!(),
+                };
+            }
+        }
+    }
+
+    for f in prog {
+        match f {
+            Def::FuncDef(name, args, body) => {
+                let mut sc = scope.clone();
+                for x in args {
+                    match x {
+                        Expr::EId(n) => sc.insert(*n, name),
+                        _ => panic!(),
+                    };
+                }
+
+                set.insert((
+                    TVar(name, Some(name)),
+                    TFun(
+                        args.iter().map(|x| TVar(x, Some(name))).collect(),
+                        Box::new(TVar(body, Some(name))),
+                    ),
+                ));
+
+                extract_expr_eqns(body, Some(name), set, sc.clone());
+            }
+        };
+    }
+}
+
+// returns a list of type equations
+fn extract_expr_eqns<'a, 'b>(
+    e: &'b Expr<'a>,
+    env: Option<&'b Expr<'a>>,
+    set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
+    scope: im::HashMap<&'a str, &'b Expr<'a>>,
+) {
+    match e {
+        Expr::EId(_) | Expr::ENum(_) | Expr::EBool(_) => {}
+        Expr::EPrim2(op, e1, e2) => extract_prim2(e, op, e1, e2, env, set, scope),
+        Expr::EIf(cond, e1, e2) => {
+            extract_expr_eqns(cond, env, set, scope.clone());
+            extract_expr_eqns(e1, env, set, scope.clone());
+            extract_expr_eqns(e2, env, set, scope.clone());
+            set.extend(vec![
+                (get_type(cond, env, scope.clone()), TBool),
+                (
+                    get_type(e1, env, scope.clone()),
+                    get_type(e2, env, scope.clone()),
+                ),
+                (
+                    get_type(e, env, scope.clone()),
+                    get_type(e1, env, scope.clone()),
+                ),
+            ]);
+        }
+        Expr::ELet(bind, body) => {
+            let mut new_scope = scope.clone();
+            for Binding(x, exp) in bind {
+                extract_expr_eqns(exp, env, set, scope.clone());
+
+                if let Some(y) = extract_eid(body, x, Some(e)) {
+                    set.insert((y, get_type(exp, env, scope.clone())));
+                }
+                new_scope.insert(x, e);
+            }
+
+            set.insert((
+                get_type(e, env, scope.clone()),
+                get_type(body, Some(e), new_scope.clone()),
+            ));
+            extract_expr_eqns(body, Some(e), set, new_scope.clone());
+        }
+        Expr::EPrint(expr) => {
+            set.insert((
+                get_type(expr, env, scope.clone()),
+                get_type(e, env, scope.clone()),
+            ));
+            extract_expr_eqns(expr, env, set, scope.clone());
+        }
+    }
+}
+
+fn extract_prim2<'a, 'b>(
+    e: &'b Expr<'a>,
+    op: &'b Prim2,
+    e1: &'b Expr<'a>,
+    e2: &'b Expr<'a>,
+    env: Option<&'b Expr<'a>>,
+    set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
+    scope: im::HashMap<&'a str, &'b Expr<'a>>,
+) {
+    extract_expr_eqns(e1, env, set, scope.clone());
+    extract_expr_eqns(e2, env, set, scope.clone());
+
+    match op {
+        Prim2::Add | Prim2::Minus | Prim2::Times => {
+            set.extend(vec![
+                (get_type(e1, env, scope.clone()), TNum),
+                (get_type(e2, env, scope.clone()), TNum),
+                (get_type(e, env, scope.clone()), TNum),
+            ]);
+        }
+        Prim2::Less | Prim2::Greater => {
+            set.extend(vec![
+                (get_type(e1, env, scope.clone()), TNum),
+                (get_type(e2, env, scope.clone()), TNum),
+                (get_type(e, env, scope.clone()), TBool),
+            ]);
+        }
+        Prim2::Equal => {
+            set.extend(vec![
+                (
+                    get_type(e1, env, scope.clone()),
+                    get_type(e2, env, scope.clone()),
+                ),
+                (get_type(e, env, scope.clone()), TBool),
+            ]);
+        }
     }
 }
 
@@ -109,6 +244,9 @@ fn unify<'a, 'b>(
             None => break,
             Some((TypeExpr::TVar(exp, p), other)) | Some((other, TypeExpr::TVar(exp, p))) => {
                 let texpr = TypeExpr::TVar(exp, p);
+
+                // TODO: occurence check
+
                 subs = subs
                     .into_iter()
                     .map(|x: (TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)| {
@@ -204,107 +342,15 @@ fn extract_eid<'a, 'b>(
     }
 }
 
-// returns a list of type equations
-fn extract_expr_eqns<'a, 'b>(
-    e: &'b Expr<'a>,
-    env: Option<&'b Expr<'a>>,
-    set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
-    origins: im::HashMap<&'a str, &'b Expr<'a>>,
-) {
-    match e {
-        Expr::EId(_) | Expr::ENum(_) | Expr::EBool(_) => {}
-        Expr::EPrim2(op, e1, e2) => extract_prim2(e, op, e1, e2, env, set, origins),
-        Expr::EIf(cond, e1, e2) => {
-            extract_expr_eqns(cond, env, set, origins.clone());
-            extract_expr_eqns(e1, env, set, origins.clone());
-            extract_expr_eqns(e2, env, set, origins.clone());
-            set.extend(vec![
-                (get_type(cond, env, origins.clone()), TBool),
-                (
-                    get_type(e1, env, origins.clone()),
-                    get_type(e2, env, origins.clone()),
-                ),
-                (
-                    get_type(e, env, origins.clone()),
-                    get_type(e1, env, origins.clone()),
-                ),
-            ]);
-        }
-        Expr::ELet(bind, body) => {
-            let mut new_origins = origins.clone();
-            for Binding(x, exp) in bind {
-                extract_expr_eqns(exp, env, set, origins.clone());
-
-                if let Some(y) = extract_eid(body, x, Some(e)) {
-                    set.insert((y, get_type(exp, env, origins.clone())));
-                }
-                new_origins.insert(x, e);
-            }
-
-            set.insert((
-                get_type(e, env, origins.clone()),
-                get_type(body, Some(e), new_origins.clone()),
-            ));
-            extract_expr_eqns(body, Some(e), set, new_origins.clone());
-        }
-        Expr::EPrint(expr) => {
-            set.insert((
-                get_type(expr, env, origins.clone()),
-                get_type(e, env, origins.clone()),
-            ));
-            extract_expr_eqns(expr, env, set, origins.clone());
-        }
-    }
-}
-
-fn extract_prim2<'a, 'b>(
-    e: &'b Expr<'a>,
-    op: &'b Prim2,
-    e1: &'b Expr<'a>,
-    e2: &'b Expr<'a>,
-    env: Option<&'b Expr<'a>>,
-    set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
-    origins: im::HashMap<&'a str, &'b Expr<'a>>,
-) {
-    extract_expr_eqns(e1, env, set, origins.clone());
-    extract_expr_eqns(e2, env, set, origins.clone());
-
-    match op {
-        Prim2::Add | Prim2::Minus | Prim2::Times => {
-            set.extend(vec![
-                (get_type(e1, env, origins.clone()), TNum),
-                (get_type(e2, env, origins.clone()), TNum),
-                (get_type(e, env, origins.clone()), TNum),
-            ]);
-        }
-        Prim2::Less | Prim2::Greater => {
-            set.extend(vec![
-                (get_type(e1, env, origins.clone()), TNum),
-                (get_type(e2, env, origins.clone()), TNum),
-                (get_type(e, env, origins.clone()), TBool),
-            ]);
-        }
-        Prim2::Equal => {
-            set.extend(vec![
-                (
-                    get_type(e1, env, origins.clone()),
-                    get_type(e2, env, origins.clone()),
-                ),
-                (get_type(e, env, origins.clone()), TBool),
-            ]);
-        }
-    }
-}
-
 fn get_type<'a, 'b>(
     e: &'b Expr<'a>,
     env: Option<&'b Expr<'a>>,
-    origins: im::HashMap<&'a str, &'b Expr<'a>>,
+    scope: im::HashMap<&'a str, &'b Expr<'a>>,
 ) -> TypeExpr<'a, 'b> {
     match e {
         Expr::ENum(_) => TNum,
         Expr::EBool(_) => TBool,
-        Expr::EId(s) => TVar(e, Some(origins.get(s).unwrap())),
+        Expr::EId(s) => TVar(e, Some(scope.get(s).unwrap())),
         e => TVar(e, env),
     }
 }

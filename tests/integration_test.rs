@@ -9,6 +9,10 @@ enum TestType<'a> {
 }
 use TestType::*;
 
+fn wrap(s: &str) -> String {
+    format!("(defn our_main () {})", s)
+}
+
 fn compile(name: &str, prog: &str, val: TestType) {
     match (compile_to_string(prog), val) {
         (Err(e), ErrC(s)) => {
@@ -86,6 +90,7 @@ run_tests! {
     fail3: ("(1 2)", ErrC("Parse error")),
     fail4: ("(let ((let 1)) let)", ErrC("Parse error")),
     fail5: ("(let ((a* 1)) a*)", ErrC("Parse error")),
+    fail6: ("(let (()) 1)", ErrC("Parse error: binding")),
 
     cond1: ("(if (> 1 0) 1 0)", Runs("1")),
     cond2: ("(if (< 1 0) 1 0)", Runs("0")),

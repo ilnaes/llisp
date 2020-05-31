@@ -22,18 +22,14 @@ fn parse_def<'a>(sexp: &Sexp<'a>) -> Result<Def<'a>, String> {
                     }
                 }
 
-                let body_vec = match body {
-                    Atom(_) => vec![parse_expr(body)?],
-                    List(l) => {
-                        let mut res = Vec::new();
-                        for s in l.into_iter() {
-                            res.push(parse_expr(s)?);
-                        }
-                        res
-                    }
-                };
-
-                Ok(Def::FuncDef(EId(f), args_vec, body_vec))
+                Ok(Def::FuncDef(
+                    EId(f),
+                    args_vec
+                        .into_iter()
+                        .map(|x| Expr::EId(x))
+                        .collect::<Vec<Expr<'a>>>(),
+                    parse_expr(body)?,
+                ))
             }
             _ => Err(format!("Parse error: Not proper def {:?}", sexp)),
         },

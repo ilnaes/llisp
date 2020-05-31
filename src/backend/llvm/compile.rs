@@ -8,10 +8,10 @@ const TRUE_CONST: i64 = 0x6;
 const FALSE_CONST: i64 = 0x2;
 
 pub fn compile_defs<'a, 'b>(defs: &'b [Def<'a>]) -> Vec<FunDef> {
-    let mut scope = Scope::new();
+    let scope = Scope::new();
     let mut res = Vec::new();
     for d in defs {
-        let Def::FuncDef(f, args, body) = d;
+        let Def::FuncDef(f, _, body) = d;
         if let Expr::EId(name) = f {
             let (mut insts, v, mut alloc) =
                 compile_expr(body, scope.clone(), &mut Generator::new(), Some(f));

@@ -182,5 +182,5 @@ pub fn fundef_to_ll(fun: FunDef) -> String {
         format!("{}{}\n", acc, inst_to_ll(x))
     });
 
-    format!("define i64 @{}({}) {{\n{}}}", fun.name, args, insts)
+    format!("define i64 @{}({}) {{\n{}}}\n", fun.name, args, insts)
 }

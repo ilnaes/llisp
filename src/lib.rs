@@ -31,10 +31,14 @@ pub fn compile_to_string(s: &str) -> Result<String, String> {
     // alloc.push(backend::llvm::Inst::IRet(var));
 
     let insts = compile::compile_defs(&ast);
+    let prog = insts.into_iter().fold(String::new(), |mut acc, x| {
+        acc.push_str(&fundef_to_ll(x));
+        acc
+    });
 
     let prelude = "declare void @print(i64)\n\n";
 
-    Ok(format!("{}{}", prelude, fundef_to_ll(insts[0].clone())))
+    Ok(format!("{}{}", prelude, prog))
 
     // Ok(format!(
     //     "{}{}",

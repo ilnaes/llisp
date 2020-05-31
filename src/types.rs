@@ -11,7 +11,7 @@ pub enum TypeExpr<'a, 'b> {
     TFun(Vec<TypeExpr<'a, 'b>>, Box<TypeExpr<'a, 'b>>),
 
     // an expression and a pointer to when it's defined
-    TVar(&'b Expr<'a>, Option<&'b Expr<'a>>),
+    TVar(&'b Expr<'a>, &'b Expr<'a>),
 }
 
 use TypeExpr::*;
@@ -25,11 +25,7 @@ impl<'a, 'b> PartialEq for TypeExpr<'a, 'b> {
                     false
                 } else {
                     // we test strict equality of the parent
-                    match (p1, p2) {
-                        (None, None) => true,
-                        (Some(loc1), Some(loc2)) => ptr::eq(*loc1, *loc2),
-                        _ => false,
-                    }
+                    ptr::eq(*p1, *p2)
                 }
             }
             (TFun(a1, r1), TFun(a2, r2)) => {
@@ -102,14 +98,14 @@ fn extract_prog_eqns<'a, 'b>(
                 }
 
                 set.insert((
-                    TVar(name, Some(name)),
+                    TVar(name, name),
                     TFun(
-                        args.iter().map(|x| TVar(x, Some(name))).collect(),
-                        Box::new(get_type(body, Some(name), scope.clone())),
+                        args.iter().map(|x| TVar(x, name)).collect(),
+                        Box::new(get_type(body, name, scope.clone())),
                     ),
                 ));
 
-                extract_expr_eqns(body, Some(name), set, sc.clone());
+                extract_expr_eqns(body, name, set, sc.clone());
             }
         };
     }
@@ -118,7 +114,7 @@ fn extract_prog_eqns<'a, 'b>(
 // returns a list of type equations
 fn extract_expr_eqns<'a, 'b>(
     e: &'b Expr<'a>,
-    env: Option<&'b Expr<'a>>,
+    env: &'b Expr<'a>,
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
     scope: im::HashMap<&'a str, &'b Expr<'a>>,
 ) {
@@ -146,7 +142,7 @@ fn extract_expr_eqns<'a, 'b>(
             for Binding(x, exp) in bind {
                 extract_expr_eqns(exp, env, set, scope.clone());
 
-                if let Some(y) = extract_eid(body, x, Some(e)) {
+                if let Some(y) = extract_eid(body, x, e) {
                     set.insert((y, get_type(exp, env, scope.clone())));
                 }
                 new_scope.insert(x, e);
@@ -154,9 +150,9 @@ fn extract_expr_eqns<'a, 'b>(
 
             set.insert((
                 get_type(e, env, scope.clone()),
-                get_type(body, Some(e), new_scope.clone()),
+                get_type(body, e, new_scope.clone()),
             ));
-            extract_expr_eqns(body, Some(e), set, new_scope.clone());
+            extract_expr_eqns(body, e, set, new_scope.clone());
         }
         Expr::EPrint(expr) => {
             set.insert((
@@ -173,7 +169,7 @@ fn extract_prim2<'a, 'b>(
     op: &'b Prim2,
     e1: &'b Expr<'a>,
     e2: &'b Expr<'a>,
-    env: Option<&'b Expr<'a>>,
+    env: &'b Expr<'a>,
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
     scope: im::HashMap<&'a str, &'b Expr<'a>>,
 ) {
@@ -287,7 +283,7 @@ fn unify<'a, 'b>(
 fn extract_eid<'a, 'b>(
     e: &'b Expr<'a>,
     id: &'a str,
-    env: Option<&'b Expr<'a>>,
+    env: &'b Expr<'a>,
 ) -> Option<TypeExpr<'a, 'b>> {
     match e {
         Expr::EId(s) => {
@@ -341,13 +337,13 @@ fn extract_eid<'a, 'b>(
 
 fn get_type<'a, 'b>(
     e: &'b Expr<'a>,
-    env: Option<&'b Expr<'a>>,
+    env: &'b Expr<'a>,
     scope: im::HashMap<&'a str, &'b Expr<'a>>,
 ) -> TypeExpr<'a, 'b> {
     match e {
         Expr::ENum(_) => TNum,
         Expr::EBool(_) => TBool,
-        Expr::EId(s) => TVar(e, Some(scope.get(s).unwrap())),
+        Expr::EId(s) => TVar(e, scope.get(s).unwrap()),
         e => TVar(e, env),
     }
 }

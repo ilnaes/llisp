@@ -110,9 +110,9 @@ fn parse_binding<'a>(b: &Sexp<'a>) -> Result<Binding<'a>, String> {
     }
 }
 
-pub fn parse_ast<'a>(sexps: &[Sexp<'a>]) -> Result<Vec<Expr<'a>>, String> {
+pub fn parse_ast<'a>(sexps: &[Sexp<'a>]) -> Result<Vec<Def<'a>>, String> {
     sexps
         .into_iter()
-        .map(parse_expr)
-        .collect::<Result<Vec<Expr<'a>>, String>>()
+        .map(parse_def)
+        .collect::<Result<Vec<Def<'a>>, String>>()
 }

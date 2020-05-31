@@ -65,18 +65,18 @@ fn run(name: &str, prog: &str, val: TestType) {
     }
 }
 
-macro_rules! run_tests {
+macro_rules! run_wrap_tests {
     ($($name:ident: ($t:expr, $val:expr),)*) => {
     $(
         #[test]
         fn $name() {
-            run(stringify!($name), $t, $val);
+            run(stringify!($name), &wrap($t), $val);
         }
     )*
     }
 }
 
-run_tests! {
+run_wrap_tests! {
     test1: ("1", Runs("1")),
     test2: ("(+ 2 3)", Runs("5")),
     def_x1: ("(let ((x-y 5)) (- 1 x-y))", Runs("-4")),

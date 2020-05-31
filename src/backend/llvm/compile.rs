@@ -1,23 +1,36 @@
 use super::scope::*;
 use super::*;
+use crate::backend::llvm::FunDef;
 use crate::expr::expr::*;
-use crate::types::*;
-use im;
+// use im;
 
 const TRUE_CONST: i64 = 0x6;
 const FALSE_CONST: i64 = 0x2;
 
-pub fn compile_defs<'a, 'b>(defs: &'b [Def<'a>]) {
-    let mut scope: im::HashMap<&'a str, &'b Expr<'a>> = im::HashMap::new();
+pub fn compile_defs<'a, 'b>(defs: &'b [Def<'a>]) -> Vec<FunDef> {
+    let mut scope = Scope::new();
+    let mut res = Vec::new();
     for d in defs {
-        let Def::FuncDef(f, _, _) = d;
+        let Def::FuncDef(f, args, body) = d;
         if let Expr::EId(name) = f {
-            scope.insert(name, f);
+            let (mut insts, v, mut alloc) =
+                compile_expr(body, scope.clone(), &mut Generator::new(), Some(f));
+
+            alloc.append(&mut insts);
+            alloc.push(Inst::IRet(v));
+
+            res.push(FunDef {
+                name: name.to_string(),
+                args: vec![],
+                inst: alloc,
+            })
         } else {
             // will have already been caught by static checkers
             panic!()
         }
     }
+
+    res
 }
 
 pub fn compile_expr<'a, 'b>(
@@ -25,7 +38,6 @@ pub fn compile_expr<'a, 'b>(
     scope: Scope<'a>,
     gen: &mut Generator,
     env: Option<&'b Expr<'a>>,
-    typenv: &TypeEnv<'a, 'b>,
 ) -> (Vec<Inst>, Arg, Vec<Inst>) {
     match expr {
         Expr::ENum(n) => {
@@ -61,13 +73,13 @@ pub fn compile_expr<'a, 'b>(
             // static checkers will/should catch this
             (vec![], scope.get(x).unwrap(), vec![])
         }
-        Expr::EPrim2(op, e1, e2) => parse_prim2(op, e1, e2, scope.clone(), gen, env, typenv),
+        Expr::EPrim2(op, e1, e2) => parse_prim2(op, e1, e2, scope.clone(), gen, env),
         Expr::ELet(bind, body) => {
             let (mut is1, scope, mut alloc) = bind.iter().fold(
                 (vec![], scope.clone(), vec![]),
                 |(mut res, mut sc, mut all), Binding(x, e)| {
                     // be sure to use old scope
-                    let (mut is, v, mut a) = compile_expr(e, scope.clone(), gen, env, typenv);
+                    let (mut is, v, mut a) = compile_expr(e, scope.clone(), gen, env);
                     sc.register(x, v);
 
                     all.append(&mut a);
@@ -76,14 +88,13 @@ pub fn compile_expr<'a, 'b>(
                 },
             );
 
-            let (mut is2, v, mut alloc1) =
-                compile_expr(body, scope.clone(), gen, Some(expr), typenv);
+            let (mut is2, v, mut alloc1) = compile_expr(body, scope.clone(), gen, Some(expr));
             is1.append(&mut is2);
             alloc.append(&mut alloc1);
             (is1, v, alloc)
         }
         Expr::EPrint(e) => {
-            let (mut is1, v1, alloc1) = compile_expr(e, scope.clone(), gen, env, typenv);
+            let (mut is1, v1, alloc1) = compile_expr(e, scope.clone(), gen, env);
 
             // if let Ok(VType::I1) = typenv.get_vtype(e, env) {
             //     let (mut is2, v2, mut alloc2) = bool_tail(v1.clone(), gen);
@@ -105,9 +116,9 @@ pub fn compile_expr<'a, 'b>(
             (is1, v1, alloc1)
         }
         Expr::EIf(cond, e1, e2) => {
-            let (mut ins1, v1, mut alloc1) = compile_expr(cond, scope.clone(), gen, env, typenv);
-            let (mut ins2, v2, mut alloc2) = compile_expr(e1, scope.clone(), gen, env, typenv);
-            let (mut ins3, v3, mut alloc3) = compile_expr(e2, scope.clone(), gen, env, typenv);
+            let (mut ins1, v1, mut alloc1) = compile_expr(cond, scope.clone(), gen, env);
+            let (mut ins2, v2, mut alloc2) = compile_expr(e1, scope.clone(), gen, env);
+            let (mut ins3, v3, mut alloc3) = compile_expr(e2, scope.clone(), gen, env);
 
             let cmp = gen.sym(true);
 
@@ -160,10 +171,9 @@ fn parse_prim2<'a, 'b>(
     scope: Scope<'a>,
     gen: &mut Generator,
     env: Option<&'b Expr<'a>>,
-    typenv: &TypeEnv<'a, 'b>,
 ) -> (Vec<Inst>, Arg, Vec<Inst>) {
-    let (mut is1, v1, mut a1) = compile_expr(e1, scope.clone(), gen, env, typenv);
-    let (mut is2, v2, mut a2) = compile_expr(e2, scope.clone(), gen, env, typenv);
+    let (mut is1, v1, mut a1) = compile_expr(e1, scope.clone(), gen, env);
+    let (mut is2, v2, mut a2) = compile_expr(e2, scope.clone(), gen, env);
     let var1 = gen.sym(true);
     let var2 = gen.sym(true);
 

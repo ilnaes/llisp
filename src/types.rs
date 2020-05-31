@@ -62,13 +62,10 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
     //     }
     // }
 
-    pub fn new(exprs: &'b [Expr<'a>]) -> Result<TypeEnv<'a, 'b>, String> {
+    pub fn new(exprs: &'b [Def<'a>]) -> Result<TypeEnv<'a, 'b>, String> {
         let mut eqns = HashSet::new();
-        let scope = im::HashMap::new();
 
-        for e in exprs.iter() {
-            extract_expr_eqns(e, None, &mut eqns, scope.clone());
-        }
+        extract_prog_eqns(exprs, &mut eqns);
 
         let eqns: Vec<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)> = eqns.into_iter().collect();
         unify(eqns)
@@ -108,7 +105,7 @@ fn extract_prog_eqns<'a, 'b>(
                     TVar(name, Some(name)),
                     TFun(
                         args.iter().map(|x| TVar(x, Some(name))).collect(),
-                        Box::new(TVar(body, Some(name))),
+                        Box::new(get_type(body, Some(name), scope.clone())),
                     ),
                 ));
 
@@ -278,9 +275,9 @@ fn unify<'a, 'b>(
         }
     }
 
-    // for e in subs.iter() {
-    //     eprintln!("{:?}\n  == {:?}", e.0, e.1);
-    // }
+    //     for e in subs.iter() {
+    //         eprintln!("{:?}\n  == {:?}", e.0, e.1);
+    //     }
 
     let res: HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>> = subs.into_iter().collect();
     Ok(TypeEnv(res))

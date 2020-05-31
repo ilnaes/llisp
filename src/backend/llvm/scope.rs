@@ -26,7 +26,7 @@ pub struct Scope<'a> {
 }
 
 impl<'a> Scope<'a> {
-    pub fn new(_: &'a str) -> Scope<'a> {
+    pub fn new() -> Scope<'a> {
         Scope {
             map: HashMap::new(),
         }

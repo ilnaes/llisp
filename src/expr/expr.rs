@@ -17,6 +17,15 @@ pub enum Expr<'a> {
     // EApp(Box<Expr<'a>>, Vec<Expr<'a>>),
 }
 
+impl<'a> Expr<'a> {
+    pub fn get_str(&self) -> Result<&'a str, String> {
+        match self {
+            Expr::EId(s) => Ok(s),
+            _ => Err("Expr not EId".to_string()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Binding<'a>(pub &'a str, pub Expr<'a>);
 

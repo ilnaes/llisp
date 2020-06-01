@@ -76,38 +76,28 @@ fn extract_prog_eqns<'a, 'b>(
 
     // gather all declared top level functions
     for f in prog {
-        match f {
-            Def::FuncDef(name, _, _) => {
-                match name {
-                    Expr::EId(n) => scope.insert(*n, name),
-                    _ => panic!(),
-                };
-            }
-        }
+        let Def::FuncDef(name, _, _) = f;
+        scope.insert(name.get_str().unwrap(), name);
     }
 
     for f in prog {
-        match f {
-            Def::FuncDef(name, args, body) => {
-                let mut sc = scope.clone();
-                for x in args {
-                    match x {
-                        Expr::EId(n) => sc.insert(*n, name),
-                        _ => panic!(),
-                    };
-                }
+        let Def::FuncDef(name, args, body) = f;
+        let mut sc = scope.clone();
 
-                set.insert((
-                    TVar(name, name),
-                    TFun(
-                        args.iter().map(|x| TVar(x, name)).collect(),
-                        Box::new(get_type(body, name, scope.clone())),
-                    ),
-                ));
+        // put args in scope
+        for x in args {
+            sc.insert(x.get_str().unwrap(), name);
+        }
 
-                extract_expr_eqns(body, name, set, sc.clone());
-            }
-        };
+        set.insert((
+            TVar(name, name),
+            TFun(
+                args.iter().map(|x| TVar(x, name)).collect(),
+                Box::new(get_type(body, name, sc.clone())),
+            ),
+        ));
+
+        extract_expr_eqns(body, name, set, sc.clone());
     }
 }
 
@@ -343,7 +333,7 @@ fn get_type<'a, 'b>(
     match e {
         Expr::ENum(_) => TNum,
         Expr::EBool(_) => TBool,
-        Expr::EId(s) => TVar(e, scope.get(s).unwrap()),
+        Expr::EId(s) => TVar(e, scope.get(s).expect(&format!("BAD {}", s))),
         e => TVar(e, env),
     }
 }

@@ -7,27 +7,45 @@ use crate::expr::expr::*;
 const TRUE_CONST: i64 = 0x6;
 const FALSE_CONST: i64 = 0x2;
 
-pub fn compile_defs<'a, 'b>(defs: &'b [Def<'a>]) -> Vec<FunDef> {
-    let scope = Scope::new();
+pub fn compile_prog<'a, 'b>(prog: &'b [Def<'a>]) -> Vec<FunDef> {
+    let mut scope = Scope::new();
     let mut res = Vec::new();
-    for d in defs {
-        let Def::FuncDef(f, _, body) = d;
-        if let Expr::EId(name) = f {
-            let (mut insts, v, mut alloc) =
-                compile_expr(body, scope.clone(), &mut Generator::new(), Some(f));
 
-            alloc.append(&mut insts);
-            alloc.push(Inst::IRet(v));
+    // register all top-level functions
+    for def in prog {
+        let Def::FuncDef(f, _, _) = def;
+        scope.register(
+            f.get_str().unwrap(),
+            Arg::AVar(Var::Global(f.get_str().unwrap().to_string())),
+        );
+    }
 
-            res.push(FunDef {
-                name: name.to_string(),
-                args: vec![],
-                inst: alloc,
+    for def in prog {
+        let Def::FuncDef(f, args, body) = def;
+        let mut sc = scope.clone();
+
+        let a = args
+            .iter()
+            .map(|x| {
+                sc.register(
+                    x.get_str().unwrap(),
+                    Arg::AVar(Var::Local(x.get_str().unwrap().to_string())),
+                );
+                x.get_str().unwrap().to_string()
             })
-        } else {
-            // will have already been caught by static checkers
-            panic!()
-        }
+            .collect();
+
+        let (mut insts, v, mut alloc) =
+            compile_expr(body, sc.clone(), &mut Generator::new(), Some(f));
+
+        alloc.append(&mut insts);
+        alloc.push(Inst::IRet(v));
+
+        res.push(FunDef {
+            name: f.get_str().unwrap().to_string(),
+            args: a,
+            inst: alloc,
+        })
     }
 
     res

@@ -175,7 +175,7 @@ pub fn fundef_to_ll(fun: FunDef) -> String {
         if acc.len() > 0 {
             format!("{}, i64 %{}", acc, x)
         } else {
-            String::from(x)
+            format!("i64 %{}", x)
         }
     });
     let insts = fun.inst.iter().fold(String::new(), |acc, x| {

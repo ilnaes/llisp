@@ -65,6 +65,26 @@ fn run(name: &str, prog: &str, val: TestType) {
     }
 }
 
+macro_rules! run_tests {
+    ($($name:ident: ($t:expr, $val:expr),)*) => {
+    $(
+        #[test]
+        fn $name() {
+            run(stringify!($name), $t, $val);
+        }
+    )*
+    }
+}
+
+run_tests! {
+    func_err1: ("(defn f () 2)", ErrC("No our_main")),
+    func_err2: ("(defn our_main () 1) (defn our_main () 2)", ErrC("Duplicate def")),
+    func_err3: ("(defn f (x x) 1) (defn our_main () 2)", ErrC("Duplicate arg")),
+    func_err4: ("(defn f (x) y) (defn our_main () 2)", ErrC("Unbound")),
+
+    func1: ("(defn f (x) x) (defn our_main () 2)", Runs("2")),
+}
+
 macro_rules! run_wrap_tests {
     ($($name:ident: ($t:expr, $val:expr),)*) => {
     $(

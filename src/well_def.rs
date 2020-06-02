@@ -68,6 +68,12 @@ pub fn check<'a, 'b>(expr: &'b Expr<'a>, scope: HashSet<&'a str>) -> Result<(), 
             check(e1, scope.clone())?;
             check(e2, scope.clone())?;
         }
+        Expr::EApp(f, args) => {
+            check(f, scope.clone())?;
+            for a in args {
+                check(a, scope.clone())?;
+            }
+        }
     }
     Ok(())
 }

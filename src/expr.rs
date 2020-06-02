@@ -8,7 +8,6 @@ const FORBIDDEN_ID_REGEX: &'static str = r"[^\w\-\?]+";
 const RESERVED_NAMES: &'static [&'static str] =
     &["let", "if", "print", "true", "false", "func", "defn"];
 
-// (defn f (args) (body))
 fn parse_def<'a>(sexp: &Sexp<'a>) -> Result<Def<'a>, String> {
     match sexp {
         Atom(_) => Err(format!("Parse error: Invalid def {:?}", sexp)),
@@ -95,7 +94,19 @@ fn parse_expr<'a>(sexp: &Sexp<'a>) -> Result<Expr<'a>, String> {
                 Box::new(parse_expr(e2)?),
                 Box::new(parse_expr(e3)?),
             )),
-            _ => return Err(format!("Parse error: {:?}", sexp)),
+            _ => {
+                if v.len() == 0 {
+                    return Err(format!("Parse error: {:?}", sexp));
+                }
+
+                let mut args = Vec::new();
+
+                for i in 1..v.len() {
+                    args.push(parse_expr(&v[i])?)
+                }
+
+                Ok(EApp(Box::new(parse_expr(&v[0])?), args))
+            }
         },
     }
 }

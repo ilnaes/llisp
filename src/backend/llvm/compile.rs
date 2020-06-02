@@ -127,6 +127,7 @@ pub fn compile_expr<'a, 'b>(
             // } else {
             is1.push(Inst::ICall(
                 VType::Void,
+                None,
                 Arg::AVar(Var::Global("print".to_string())),
                 vec![v1.clone()],
             ));
@@ -178,6 +179,25 @@ pub fn compile_expr<'a, 'b>(
             alloc1.push(Inst::IAlloc(typ.clone(), store));
 
             return (ins1, res, alloc1);
+        }
+        Expr::EApp(func, args) => {
+            let (mut is1, v1, mut all1) = compile_expr(func, scope.clone(), gen, env);
+            if let Arg::AVar(_) = v1.clone() {
+                let res = gen.sym(true);
+                let mut arg_vec = Vec::new();
+
+                for a in args {
+                    let (mut is, v, mut all) = compile_expr(a, scope.clone(), gen, env);
+                    arg_vec.push(v);
+                    is1.append(&mut is);
+                    all1.append(&mut all);
+                }
+
+                is1.push(Inst::ICall(VType::I64, Some(res.clone()), v1, arg_vec));
+                (is1, res, all1)
+            } else {
+                panic!(format!("Compile error: {:?}", v1))
+            }
         }
     }
 }

@@ -46,7 +46,7 @@ pub enum Inst {
     ILabel(String),
     IBrk(Arg, Arg, Arg), // conditional break
     IJmp(Arg),           // unconditional break
-    ICall(VType, Arg, Vec<Arg>),
+    ICall(VType, Option<Arg>, Arg, Vec<Arg>),
 }
 
 #[derive(Debug, Clone)]
@@ -154,7 +154,7 @@ pub fn inst_to_ll(is: &Inst) -> String {
             arg_to_ll(els)
         ),
         Inst::IJmp(dst) => format!("  br label {}", arg_to_ll(dst)),
-        Inst::ICall(typ, func, args) => {
+        Inst::ICall(typ, ret, func, args) => {
             let mut inj = String::new();
             for (i, a) in args.into_iter().enumerate() {
                 inj.push_str("i64 ");
@@ -164,7 +164,17 @@ pub fn inst_to_ll(is: &Inst) -> String {
                 }
             }
 
-            format!("  call {} {}({})", typ_to_ll(typ), arg_to_ll(func), inj)
+            if let Some(r) = ret {
+                format!(
+                    "  {} = call {} {}({})",
+                    arg_to_ll(r),
+                    typ_to_ll(typ),
+                    arg_to_ll(func),
+                    inj
+                )
+            } else {
+                format!("  call {} {}({})", typ_to_ll(typ), arg_to_ll(func), inj)
+            }
         }
         Inst::IRet(arg) => format!("  ret i64 {}", arg_to_ll(arg)),
     }

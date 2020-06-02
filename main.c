@@ -11,8 +11,9 @@
 #define NUM_MIN (- (1L << 62))
 #define NUM_MAX ((1L << 62) - 1)
 
-extern int64_t* new(int64_t) asm("_new");
 extern int64_t our_main() asm("_our_main");
+
+extern int64_t* new(int64_t) asm("_new");
 extern void print(int64_t) asm("_print");
 extern void error(int64_t) asm("_error");
 

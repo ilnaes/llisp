@@ -14,7 +14,7 @@ pub enum Expr<'a> {
     ELet(Vec<Binding<'a>>, Box<Expr<'a>>),
     EIf(Box<Expr<'a>>, Box<Expr<'a>>, Box<Expr<'a>>),
     EPrint(Box<Expr<'a>>),
-    // EApp(Box<Expr<'a>>, Vec<Expr<'a>>),
+    EApp(Box<Expr<'a>>, Vec<Expr<'a>>),
 }
 
 impl<'a> Expr<'a> {

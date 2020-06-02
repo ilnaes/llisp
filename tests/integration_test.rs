@@ -83,6 +83,8 @@ run_tests! {
     func_err4: ("(defn f (x) y) (defn our_main () 2)", ErrC("Unbound")),
 
     func1: ("(defn f (x) x) (defn our_main () 2)", Runs("2")),
+
+    fib: ("(defn f (n) (if (< n 2) 1 (+ (f (- n 1)) (f (- n 2))))) (defn our_main () (f 6))", Runs("13")),
 }
 
 macro_rules! run_wrap_tests {
@@ -107,7 +109,7 @@ run_wrap_tests! {
 
     fail: ("((1)", ErrC("Lex error")),
     fail2: ("(1))", ErrC("Lex error")),
-    fail3: ("(1 2)", ErrC("Parse error")),
+    fail3: ("(1 2)", ErrC("Type inference conflict")),
     fail4: ("(let ((let 1)) let)", ErrC("Parse error")),
     fail5: ("(let ((a* 1)) a*)", ErrC("Parse error")),
     fail6: ("(let (()) 1)", ErrC("Parse error: binding")),

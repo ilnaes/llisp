@@ -151,6 +151,22 @@ fn extract_expr_eqns<'a, 'b>(
             ));
             extract_expr_eqns(expr, env, set, scope.clone());
         }
+        Expr::EApp(f, args) => {
+            set.insert((
+                get_type(f, env, scope.clone()),
+                TFun(
+                    args.iter()
+                        .map(|x| get_type(x, env, scope.clone()))
+                        .collect(),
+                    Box::new(get_type(e, env, scope.clone())),
+                ),
+            ));
+
+            extract_expr_eqns(f, env, set, scope.clone());
+            for a in args {
+                extract_expr_eqns(a, env, set, scope.clone());
+            }
+        }
     }
 }
 
@@ -321,6 +337,20 @@ fn extract_eid<'a, 'b>(
             } else {
                 extract_eid(body, id, env)
             }
+        }
+        Expr::EApp(f, args) => {
+            let res = extract_eid(f, id, env);
+            if res.is_some() {
+                return res;
+            }
+
+            for a in args {
+                let res = extract_eid(a, id, env);
+                if res.is_some() {
+                    return res;
+                }
+            }
+            None
         }
     }
 }

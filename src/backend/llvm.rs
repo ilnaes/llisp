@@ -6,6 +6,9 @@ pub enum VType {
     I1,
     I64,
     Void,
+
+    Ptr(Box<VType>),
+    Func(Vec<VType>, Box<VType>),
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +52,9 @@ pub enum Inst {
     IJmp(Arg),           // unconditional break
     ICall(VType, Option<Arg>, Arg, Vec<Arg>),
     IZExt(VType, VType, Arg, Arg),
+    IGEP(VType, Arg, Arg, Arg),
+    IPtrtoint(VType, VType, Arg, Arg),
+    IInttoptr(VType, VType, Arg, Arg),
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +69,24 @@ pub fn typ_to_ll(t: &VType) -> String {
         VType::I1 => String::from("i1"),
         VType::I64 => String::from("i64"),
         VType::Void => String::from("void"),
+        VType::Ptr(typ) => format!("{}*", typ_to_ll(typ)),
+        VType::Func(args, ret) => {
+            let mut res = typ_to_ll(ret);
+            res.push('(');
+
+            let mut inside = String::new();
+            for a in args {
+                inside.push_str(&format!("{}, ", typ_to_ll(a)));
+            }
+
+            if inside.len() > 0 {
+                inside.pop();
+                inside.pop();
+                res.push_str(&inside);
+            }
+            res.push_str(")*");
+            res
+        }
     }
 }
 
@@ -82,6 +106,31 @@ pub fn arg_to_ll(a: &Arg) -> String {
 
 pub fn inst_to_ll(is: &Inst) -> String {
     match is {
+        Inst::IGEP(t, dst, src, len) => {
+            let t = typ_to_ll(t);
+            format!(
+                "  {} = getelementptr inbounds {}, {}* {}, i64 {}",
+                arg_to_ll(dst),
+                t,
+                t,
+                arg_to_ll(src),
+                arg_to_ll(len),
+            )
+        }
+        Inst::IInttoptr(dtyp, styp, dst, src) => format!(
+            "  {} = inttoptr {} {} to {}",
+            arg_to_ll(dst),
+            typ_to_ll(styp),
+            arg_to_ll(src),
+            typ_to_ll(dtyp),
+        ),
+        Inst::IPtrtoint(dtyp, styp, dst, src) => format!(
+            "  {} = ptrtoint {} {} to {}",
+            arg_to_ll(dst),
+            typ_to_ll(styp),
+            arg_to_ll(src),
+            typ_to_ll(dtyp),
+        ),
         Inst::IZExt(dtyp, styp, dst, src) => format!(
             "  {} = zext {} {} to {}",
             arg_to_ll(dst),

@@ -79,14 +79,19 @@ macro_rules! run_tests {
 run_tests! {
     func1: ("(defn f (x) x) (defn our_main () 2)", Runs("2")),
     func2: ("(defn f () 2) (defn g () 1) (defn our_main () (if true (g) (f)))", Runs("1")),
+    func3: ("(defn f (x y) (+ x y)) (defn our_main () (f 1 2))", Runs("3")),
 
     fib: ("(defn f (n) (if (< n 2) 1 (+ (f (- n 1)) (f (- n 2))))) (defn our_main () (f 6))", Runs("13")),
 
+    func_obj1: ("(defn f () 1) (defn g () 2) (defn our_main () ((if false f g)))", Runs("2")),
+    func_obj2: ("(defn f (x) (+ x 1)) (defn our_main () (let ((g f)) (g 2)))", Runs("3")),
+
     func_err1: ("(defn f () 2)", ErrC("No our_main")),
     func_err2: ("(defn our_main () 1) (defn our_main () 2)", ErrC("Duplicate def")),
-    func_err3: ("(defn f (x x) 1) (defn our_main () 2)", ErrC("Duplicate arg")),
+    func_err3: ("(defn f (x x) x) (defn our_main () 2)", ErrC("Duplicate arg")),
     func_err4: ("(defn f (x) y) (defn our_main () 2)", ErrC("Unbound")),
     func_err5: ("(defn f () true) (defn g () 1) (defn our_main () (if true f g))", ErrC("Type inference conflict")),
+    func_err6: ("(defn f () true) (defn our_main () ((if true f f) 1))", ErrC("Type inference conflict")),
 }
 
 macro_rules! run_wrap_tests {

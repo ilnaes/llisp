@@ -4,7 +4,7 @@ use crate::backend::llvm::FunDef;
 use crate::expr::expr::*;
 // use im;
 
-const TRUE_CONST: i64 = 0x6;
+const TRUE_CONST: i64 = 0xA;
 const FALSE_CONST: i64 = 0x2;
 
 pub fn compile_prog<'a, 'b>(prog: &'b [Def<'a>]) -> Vec<FunDef> {
@@ -89,7 +89,10 @@ pub fn compile_expr<'a, 'b>(
         }
         Expr::EId(x) => {
             // static checkers will/should catch this
-            (vec![], scope.get(x).unwrap(), vec![])
+            match scope.get(x).unwrap() {
+                Arg::AVar(_) => (vec![], scope.get(x).unwrap(), vec![]),
+                _ => panic!(format!("Improper scoped variable {:?}", x)),
+            }
         }
         Expr::EPrim2(op, e1, e2) => parse_prim2(op, e1, e2, scope.clone(), gen, env),
         Expr::ELet(bind, body) => {
@@ -215,14 +218,13 @@ fn parse_prim2<'a, 'b>(
     let var1 = gen.sym(true);
     let var2 = gen.sym(true);
 
-    let (mut op_is, res, mut a3) = match op {
+    let (mut op_is, res) = match op {
         Prim2::Add => (
             vec![
                 Inst::IAdd64(var1.clone(), v1, v2),
                 Inst::ISub(var2.clone(), var1, Arg::Const(1)),
             ],
             var2,
-            vec![],
         ),
         Prim2::Minus => (
             vec![
@@ -230,7 +232,6 @@ fn parse_prim2<'a, 'b>(
                 Inst::IAdd64(var2.clone(), var1, Arg::Const(1)),
             ],
             var2,
-            vec![],
         ),
         Prim2::Times => {
             let var3 = gen.sym(true);
@@ -243,29 +244,28 @@ fn parse_prim2<'a, 'b>(
                     Inst::IAdd64(var4.clone(), var3, Arg::Const(1)),
                 ],
                 var4,
-                vec![],
             )
         }
         Prim2::Equal => {
-            let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
+            let (mut insts, res) = bool_tail(var1.clone(), gen);
             let mut ins = vec![Inst::IEq(VType::I64, var1, v1, v2)];
             ins.append(&mut insts);
-            (ins, res, alloc)
+            (ins, res)
             // let typ = typenv.get_vtype(&e1, env).unwrap();
             // (vec![Inst::IEq(typ, var1.clone(), v1, v2)], var1, vec![])
         }
         Prim2::Less => {
-            let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
+            let (mut insts, res) = bool_tail(var1.clone(), gen);
             let mut ins = vec![Inst::ILt(var1, v1, v2)];
             ins.append(&mut insts);
-            (ins, res, alloc)
+            (ins, res)
             // (vec![Inst::ILt(var1.clone(), v1, v2)], var1, vec![])
         }
         Prim2::Greater => {
-            let (mut insts, res, alloc) = bool_tail(var1.clone(), gen);
+            let (mut insts, res) = bool_tail(var1.clone(), gen);
             let mut ins = vec![Inst::IGt(var1, v1, v2)];
             ins.append(&mut insts);
-            (ins, res, alloc)
+            (ins, res)
             // (vec![Inst::IGt(var1.clone(), v1, v2)], var1, vec![])
         }
     };
@@ -273,29 +273,21 @@ fn parse_prim2<'a, 'b>(
     is1.append(&mut is2);
     is1.append(&mut op_is);
     a1.append(&mut a2);
-    a1.append(&mut a3);
 
     (is1, res, a1)
 }
 
-fn bool_tail(cond: Arg, gen: &mut scope::Generator) -> (Vec<Inst>, Arg, Vec<Inst>) {
-    let store = gen.sym(true);
-    let true_branch = gen.sym(true);
-    let false_branch = gen.sym(true);
-    let after_branch = gen.sym(true);
-    let alloc = vec![Inst::IAlloc(VType::I64, store.clone())];
-    let res = gen.sym(true);
+fn bool_tail(cond: Arg, gen: &mut scope::Generator) -> (Vec<Inst>, Arg) {
+    let v1 = gen.sym(true);
+    let v2 = gen.sym(true);
+    let v3 = gen.sym(true);
 
-    let inst = vec![
-        Inst::IBrk(cond, true_branch.clone(), false_branch.clone()),
-        Inst::ILabel(true_branch.to_string()),
-        Inst::IStore(VType::I64, store.clone(), Arg::Const(TRUE_CONST)),
-        Inst::IJmp(after_branch.clone()),
-        Inst::ILabel(false_branch.to_string()),
-        Inst::IStore(VType::I64, store.clone(), Arg::Const(FALSE_CONST)),
-        Inst::IJmp(after_branch.clone()),
-        Inst::ILabel(after_branch.to_string()),
-        Inst::ILoad(VType::I64, res.clone(), store),
-    ];
-    (inst, res, alloc)
+    (
+        vec![
+            Inst::IZExt(VType::I64, VType::I1, v1.clone(), cond),
+            Inst::IShl(v2.clone(), v1, Arg::Const(3)),
+            Inst::IAdd64(v3.clone(), v2, Arg::Const(2)),
+        ],
+        v3,
+    )
 }

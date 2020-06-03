@@ -3,7 +3,7 @@ pub mod scope;
 
 #[derive(Debug, Clone)]
 pub enum VType {
-    // I1,
+    I1,
     I64,
     Void,
 }
@@ -35,6 +35,7 @@ pub enum Inst {
     // IAdd1(Arg, Arg, Arg),
     ISub(Arg, Arg, Arg),
     IAshr(Arg, Arg, Arg),
+    IShl(Arg, Arg, Arg),
     IMul(Arg, Arg, Arg),
     IGt(Arg, Arg, Arg),
     ILt(Arg, Arg, Arg),
@@ -47,6 +48,7 @@ pub enum Inst {
     IBrk(Arg, Arg, Arg), // conditional break
     IJmp(Arg),           // unconditional break
     ICall(VType, Option<Arg>, Arg, Vec<Arg>),
+    IZExt(VType, VType, Arg, Arg),
 }
 
 #[derive(Debug, Clone)]
@@ -58,7 +60,7 @@ pub struct FunDef {
 
 pub fn typ_to_ll(t: &VType) -> String {
     match t {
-        // VType::I1 => String::from("i1"),
+        VType::I1 => String::from("i1"),
         VType::I64 => String::from("i64"),
         VType::Void => String::from("void"),
     }
@@ -80,6 +82,13 @@ pub fn arg_to_ll(a: &Arg) -> String {
 
 pub fn inst_to_ll(is: &Inst) -> String {
     match is {
+        Inst::IZExt(dtyp, styp, dst, src) => format!(
+            "  {} = zext {} {} to {}",
+            arg_to_ll(dst),
+            typ_to_ll(styp),
+            arg_to_ll(src),
+            typ_to_ll(dtyp),
+        ),
         Inst::IAdd64(dst, arg1, arg2) => format!(
             "  {} = add i64 {}, {}",
             arg_to_ll(dst),
@@ -106,6 +115,12 @@ pub fn inst_to_ll(is: &Inst) -> String {
         ),
         Inst::IAshr(dst, arg1, arg2) => format!(
             "  {} = ashr i64 {}, {}",
+            arg_to_ll(dst),
+            arg_to_ll(arg1),
+            arg_to_ll(arg2)
+        ),
+        Inst::IShl(dst, arg1, arg2) => format!(
+            "  {} = shl i64 {}, {}",
             arg_to_ll(dst),
             arg_to_ll(arg1),
             arg_to_ll(arg2)

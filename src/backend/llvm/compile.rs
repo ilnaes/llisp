@@ -32,7 +32,7 @@ pub fn compile_prog<'a, 'b>(prog: &'b [Def<'a>], typenv: &TypeEnv<'a, 'b>) -> Ve
 
         let mut sc = scope.clone();
 
-        let a = args
+        let mut a: Vec<String> = args
             .iter()
             .map(|x| {
                 sc.register(
@@ -42,6 +42,10 @@ pub fn compile_prog<'a, 'b>(prog: &'b [Def<'a>], typenv: &TypeEnv<'a, 'b>) -> Ve
                 x.get_str().unwrap().to_string()
             })
             .collect();
+
+        if f.get_str().unwrap() != "our_main" {
+            a.push("self".to_string());
+        }
 
         let mut gen = Generator::new();
         let mut insts = Vec::new();
@@ -273,19 +277,20 @@ fn compile_expr<'a, 'b>(
         }
         Expr::EApp(func, args) => {
             let (mut is1, v1, mut all1) = compile_expr(func, scope.clone(), gen, env, typenv);
-            // if let Arg::AVar(_) = v1.clone() {
             let ptr = gen.sym(true);
             let load = gen.sym(true);
             let fptr = gen.sym(true);
             let res = gen.sym(true);
-            let mut arg_vec = Vec::new();
 
+            let mut arg_vec = Vec::new();
             for a in args {
                 let (mut is, v, mut all) = compile_expr(a, scope.clone(), gen, env, typenv);
                 arg_vec.push(v);
                 is1.append(&mut is);
                 all1.append(&mut all);
             }
+
+            arg_vec.push(v1.clone());
 
             let typ = typenv.get_vtype(func, env).unwrap();
 
@@ -301,9 +306,6 @@ fn compile_expr<'a, 'b>(
                 Inst::ICall(VType::I64, Some(res.clone()), fptr, arg_vec),
             ]);
             (is1, res, all1)
-            // } else {
-            //     panic!(format!("Compile error: {:?}", v1))
-            // }
         }
     }
 }

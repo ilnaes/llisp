@@ -35,7 +35,6 @@ impl Arg {
 #[derive(Debug, Clone)]
 pub enum Inst {
     IAdd64(Arg, Arg, Arg),
-    // IAdd1(Arg, Arg, Arg),
     ISub(Arg, Arg, Arg),
     IAshr(Arg, Arg, Arg),
     IShl(Arg, Arg, Arg),
@@ -75,8 +74,10 @@ pub fn typ_to_ll(t: &VType) -> String {
             res.push('(');
 
             let mut inside = String::new();
-            for a in args {
-                inside.push_str(&format!("{}, ", typ_to_ll(a)));
+            for _ in args {
+                // inside.push_str(&format!("{}, ", typ_to_ll(a)));
+                // all data types are i64
+                inside.push_str("i64, ");
             }
 
             if inside.len() > 0 {

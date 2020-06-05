@@ -5,6 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::iter::Extend;
 use std::ptr;
 
+const PRINT: bool = false;
+
 #[derive(Debug, Clone, Hash)]
 pub enum TypeExpr<'a, 'b> {
     TNum,
@@ -53,10 +55,11 @@ pub struct TypeEnv<'a, 'b>(pub HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>>);
 fn type_to_vtype(typ: &TypeExpr) -> Result<VType, String> {
     match typ {
         TypeExpr::TNum | TypeExpr::TBool => Ok(VType::I64),
-        TypeExpr::TFun(args, ret) => Ok(VType::Func(
-            args.iter().map(|x| type_to_vtype(x).unwrap()).collect(),
-            Box::new(type_to_vtype(ret)?),
-        )),
+        TypeExpr::TFun(args, ret) => {
+            let mut a: Vec<VType> = args.iter().map(|x| type_to_vtype(x).unwrap()).collect();
+            a.push(VType::I64);
+            Ok(VType::Func(a, Box::new(type_to_vtype(ret)?)))
+        }
         TypeExpr::TVar(_, _) => Err(format!("Compile error: Unbound type")),
     }
 }
@@ -278,9 +281,11 @@ fn unify<'a, 'b>(
         }
     }
 
-    // for e in subs.iter() {
-    //     eprintln!("{:?}\n  == {:?}", e.0, e.1);
-    // }
+    if PRINT {
+        for e in subs.iter() {
+            eprintln!("{:?}\n  == {:?}", e.0, e.1);
+        }
+    }
 
     let res: HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>> = subs.into_iter().collect();
     Ok(TypeEnv(res))

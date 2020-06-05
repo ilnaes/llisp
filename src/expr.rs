@@ -5,8 +5,9 @@ use regex::Regex;
 pub mod expr;
 
 const FORBIDDEN_ID_REGEX: &'static str = r"[^\w\-\?]+";
-const RESERVED_NAMES: &'static [&'static str] =
-    &["let", "if", "print", "true", "false", "func", "defn"];
+const RESERVED_NAMES: &'static [&'static str] = &[
+    "let", "if", "print", "true", "false", "func", "defn", "selfref",
+];
 
 fn parse_def<'a>(sexp: &Sexp<'a>) -> Result<Def<'a>, String> {
     match sexp {
@@ -16,9 +17,21 @@ fn parse_def<'a>(sexp: &Sexp<'a>) -> Result<Def<'a>, String> {
                 let mut args_vec: Vec<&'a str> = Vec::new();
                 for a in args.into_iter() {
                     match a {
-                        Atom(x) => args_vec.push(x),
+                        Atom(x) => {
+                            let re = Regex::new(FORBIDDEN_ID_REGEX).unwrap();
+                            if !re.is_match(x) && !RESERVED_NAMES.contains(x) {
+                                args_vec.push(x)
+                            } else {
+                                return Err(format!("Parse error: Invalid parameter {}", x));
+                            }
+                        }
                         _ => return Err(format!("Parse error: Invalid param {:?}", a)),
                     }
+                }
+
+                let re = Regex::new(FORBIDDEN_ID_REGEX).unwrap();
+                if re.is_match(f) || RESERVED_NAMES.contains(f) {
+                    return Err(format!("Parse error: Invalid function name {}", f));
                 }
 
                 Ok(Def::FuncDef(

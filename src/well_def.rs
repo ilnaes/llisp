@@ -53,13 +53,16 @@ pub fn check<'a, 'b>(expr: &'b Expr<'a>, scope: HashSet<String>) -> Result<(), S
             let mut sc = scope.clone();
             for Binding(x, e) in bind {
                 if names.contains(x) {
-                    return Err(format!("Welldef error: Duplicate binding {}", x));
+                    return Err(format!(
+                        "Welldef error: Duplicate binding {}",
+                        x.get_str().unwrap()
+                    ));
                 }
                 names.insert(x);
                 // be sure to use old scope
                 check(e, scope.clone())?;
 
-                sc.insert(x.to_string());
+                sc.insert(x.get_str().unwrap());
             }
 
             check(body, sc.clone())?;
@@ -75,7 +78,7 @@ pub fn check<'a, 'b>(expr: &'b Expr<'a>, scope: HashSet<String>) -> Result<(), S
                 check(a, scope.clone())?;
             }
         }
-        Expr::ELambda(_, _) => { // TODO
+        Expr::ELambda(_, _, _) => { // TODO
         }
     }
     Ok(())

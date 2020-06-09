@@ -8,7 +8,11 @@ use std::collections::HashMap;
 const TRUE_CONST: i64 = 0xA;
 const FALSE_CONST: i64 = 0x2;
 
-pub fn compile_prog<'a, 'b>(prog: &'b [Def<'a>], typenv: &TypeEnv<'a, 'b>) -> Vec<FunDef> {
+pub fn compile_prog<'a, 'b>(
+    prog: &'b [Def<'a>],
+    typenv: &TypeEnv<'a, 'b>,
+    mut gen: Generator,
+) -> Vec<FunDef> {
     let mut scope = Scope::new();
     let mut res = Vec::new();
     let mut all_globals: HashMap<&'b Expr<'a>, bool> = HashMap::new();
@@ -47,7 +51,6 @@ pub fn compile_prog<'a, 'b>(prog: &'b [Def<'a>], typenv: &TypeEnv<'a, 'b>) -> Ve
             a.push("self".to_string());
         }
 
-        let mut gen = Generator::new();
         let mut insts = Vec::new();
 
         for (f, a) in globals {
@@ -55,10 +58,9 @@ pub fn compile_prog<'a, 'b>(prog: &'b [Def<'a>], typenv: &TypeEnv<'a, 'b>) -> Ve
                 continue;
             }
 
-            let malloc = gen.sym(true);
-            let ptr = gen.sym(true);
-            let val = gen.sym(true);
-            // let offset = gen.sym(true);
+            let malloc = gen.sym_arg(true);
+            let ptr = gen.sym_arg(true);
+            let val = gen.sym_arg(true);
 
             if let Ok(typ) = typenv.get_vtype(f, f) {
                 insts.append(&mut vec![
@@ -135,7 +137,7 @@ fn hoist_globals<'a, 'b>(expr: &'b Expr<'a>, scope: &Scope, set: &mut HashMap<&'
             }
         }
         Expr::EBool(_) | Expr::ENum(_) => {}
-        Expr::ELambda(_, _) => panic!(),
+        Expr::ELambda(_, _, _) => panic!(),
     }
 }
 
@@ -148,7 +150,7 @@ fn compile_expr<'a, 'b>(
 ) -> (Vec<Inst>, Arg, Vec<Inst>) {
     match expr {
         Expr::ENum(n) => {
-            let var = gen.sym(true);
+            let var = gen.sym_arg(true);
             (
                 vec![Inst::IAdd64(
                     var.clone(),
@@ -160,7 +162,7 @@ fn compile_expr<'a, 'b>(
             )
         }
         Expr::EBool(b) => {
-            let var = gen.sym(true);
+            let var = gen.sym_arg(true);
             (
                 // vec![Inst::IAdd1(
                 //     var.clone(),
@@ -190,7 +192,7 @@ fn compile_expr<'a, 'b>(
                 |(mut res, mut sc, mut all), Binding(x, e)| {
                     // be sure to use old scope
                     let (mut is, v, mut a) = compile_expr(e, scope.clone(), gen, env, typenv);
-                    sc.register(x.to_string(), v);
+                    sc.register(x.get_str().unwrap(), v);
 
                     all.append(&mut a);
                     res.append(&mut is);
@@ -231,14 +233,14 @@ fn compile_expr<'a, 'b>(
             let (mut ins2, v2, mut alloc2) = compile_expr(e1, scope.clone(), gen, env, typenv);
             let (mut ins3, v3, mut alloc3) = compile_expr(e2, scope.clone(), gen, env, typenv);
 
-            let cmp = gen.sym(true);
+            let cmp = gen.sym_arg(true);
 
-            let store = gen.sym(true);
-            let true_branch = gen.sym(true);
+            let store = gen.sym_arg(true);
+            let true_branch = gen.sym_arg(true);
             let true_label = true_branch.to_string();
-            let false_branch = gen.sym(true);
+            let false_branch = gen.sym_arg(true);
             let false_label = false_branch.to_string();
-            let after = gen.sym(true);
+            let after = gen.sym_arg(true);
             let after_label = after.to_string();
 
             // let typ = typenv.get_vtype(&expr, env).unwrap();
@@ -266,7 +268,7 @@ fn compile_expr<'a, 'b>(
             ]);
             alloc1.append(&mut alloc3);
 
-            let res = gen.sym(true);
+            let res = gen.sym_arg(true);
             ins1.push(Inst::ILoad(typ.clone(), res.clone(), store.clone()));
             alloc1.push(Inst::IAlloc(typ.clone(), store));
 
@@ -274,10 +276,10 @@ fn compile_expr<'a, 'b>(
         }
         Expr::EApp(func, args) => {
             let (mut is1, v1, mut all1) = compile_expr(func, scope.clone(), gen, env, typenv);
-            let ptr = gen.sym(true);
-            let load = gen.sym(true);
-            let fptr = gen.sym(true);
-            let res = gen.sym(true);
+            let ptr = gen.sym_arg(true);
+            let load = gen.sym_arg(true);
+            let fptr = gen.sym_arg(true);
+            let res = gen.sym_arg(true);
 
             let mut arg_vec = Vec::new();
             for a in args {
@@ -304,7 +306,7 @@ fn compile_expr<'a, 'b>(
             ]);
             (is1, res, all1)
         }
-        Expr::ELambda(_, _) => panic!(),
+        Expr::ELambda(_, _, _) => panic!(),
     }
 }
 
@@ -319,8 +321,8 @@ fn parse_prim2<'a, 'b>(
 ) -> (Vec<Inst>, Arg, Vec<Inst>) {
     let (mut is1, v1, mut a1) = compile_expr(e1, scope.clone(), gen, env, typenv);
     let (mut is2, v2, mut a2) = compile_expr(e2, scope.clone(), gen, env, typenv);
-    let var1 = gen.sym(true);
-    let var2 = gen.sym(true);
+    let var1 = gen.sym_arg(true);
+    let var2 = gen.sym_arg(true);
 
     let (mut op_is, res) = match op {
         Prim2::Add => (
@@ -338,8 +340,8 @@ fn parse_prim2<'a, 'b>(
             var2,
         ),
         Prim2::Times => {
-            let var3 = gen.sym(true);
-            let var4 = gen.sym(true);
+            let var3 = gen.sym_arg(true);
+            let var4 = gen.sym_arg(true);
             (
                 vec![
                     Inst::IAshr(var1.clone(), v1, Arg::Const(1)),
@@ -382,9 +384,9 @@ fn parse_prim2<'a, 'b>(
 }
 
 fn bool_tail(cond: Arg, gen: &mut scope::Generator) -> (Vec<Inst>, Arg) {
-    let v1 = gen.sym(true);
-    let v2 = gen.sym(true);
-    let v3 = gen.sym(true);
+    let v1 = gen.sym_arg(true);
+    let v2 = gen.sym_arg(true);
+    let v3 = gen.sym_arg(true);
 
     (
         vec![

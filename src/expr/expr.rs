@@ -15,7 +15,7 @@ pub enum Expr<'a> {
     EIf(Box<Expr<'a>>, Box<Expr<'a>>, Box<Expr<'a>>),
     EPrint(Box<Expr<'a>>),
     EApp(Box<Expr<'a>>, Vec<Expr<'a>>),
-    ELambda(Vec<Expr<'a>>, Box<Expr<'a>>),
+    ELambda(String, Vec<Expr<'a>>, Box<Expr<'a>>),
 }
 
 impl<'a> Expr<'a> {
@@ -27,8 +27,9 @@ impl<'a> Expr<'a> {
     }
 }
 
+// first will always be EId(x)
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Binding<'a>(pub &'a str, pub Expr<'a>);
+pub struct Binding<'a>(pub Expr<'a>, pub Expr<'a>);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Prim2 {

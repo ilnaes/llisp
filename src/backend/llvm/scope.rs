@@ -10,13 +10,18 @@ impl Generator {
         Generator { n: 0 }
     }
 
-    pub fn sym(&mut self, local: bool) -> Arg {
+    pub fn sym_arg(&mut self, local: bool) -> Arg {
         self.n += 1;
         if local {
             Arg::AVar(Var::Local(format!("sym{}", self.n)))
         } else {
             Arg::AVar(Var::Global(format!("sym{}", self.n)))
         }
+    }
+
+    pub fn sym(&mut self) -> String {
+        self.n += 1;
+        format!("sym{}", self.n)
     }
 }
 

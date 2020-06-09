@@ -1,6 +1,5 @@
 use crate::backend::llvm::VType;
 use crate::expr::expr::*;
-use im;
 use std::collections::{HashMap, HashSet};
 use std::iter::Extend;
 use std::ptr;
@@ -87,12 +86,9 @@ fn extract_prog_eqns<'a, 'b>(
     prog: &'b [Def<'a>],
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
 ) {
-    let mut scope = im::HashMap::new();
-
     // gather all declared top level functions
     for i in 0..prog.len() {
         let Def::FuncDef(name, _, _) = &prog[i];
-        scope.insert(name.get_str().unwrap(), name);
 
         // TODO: rule out argument shadows
         for j in (i + 1)..prog.len() {
@@ -103,12 +99,6 @@ fn extract_prog_eqns<'a, 'b>(
 
     for f in prog {
         let Def::FuncDef(name, args, body) = f;
-        let mut sc = scope.clone();
-
-        // put args in scope
-        for x in args {
-            sc.insert(x.get_str().unwrap(), name);
-        }
 
         set.insert((
             TVar(name, name),
@@ -118,7 +108,7 @@ fn extract_prog_eqns<'a, 'b>(
             ),
         ));
 
-        extract_expr_eqns(body, name, set, sc.clone());
+        extract_expr_eqns(body, name, set);
     }
 }
 
@@ -127,15 +117,14 @@ fn extract_expr_eqns<'a, 'b>(
     e: &'b Expr<'a>,
     env: &'b Expr<'a>,
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
-    scope: im::HashMap<String, &'b Expr<'a>>,
 ) {
     match e {
         Expr::EId(_) | Expr::ENum(_) | Expr::EBool(_) => {}
-        Expr::EPrim2(op, e1, e2) => extract_prim2(e, op, e1, e2, env, set, scope),
+        Expr::EPrim2(op, e1, e2) => extract_prim2(e, op, e1, e2, env, set),
         Expr::EIf(cond, e1, e2) => {
-            extract_expr_eqns(cond, env, set, scope.clone());
-            extract_expr_eqns(e1, env, set, scope.clone());
-            extract_expr_eqns(e2, env, set, scope.clone());
+            extract_expr_eqns(cond, env, set);
+            extract_expr_eqns(e1, env, set);
+            extract_expr_eqns(e2, env, set);
             set.extend(vec![
                 (get_type(cond, env), TBool),
                 (get_type(e1, env), get_type(e2, env)),
@@ -143,22 +132,17 @@ fn extract_expr_eqns<'a, 'b>(
             ]);
         }
         Expr::ELet(bind, body) => {
-            let mut new_scope = scope.clone();
             for Binding(x, exp) in bind {
-                extract_expr_eqns(exp, env, set, scope.clone());
-
-                if let Some(y) = extract_eid(body, x, e) {
-                    set.insert((y, get_type(exp, env)));
-                }
-                new_scope.insert(x.to_string(), e);
+                extract_expr_eqns(exp, env, set);
+                set.insert((TVar(x, e), get_type(exp, env)));
             }
 
             set.insert((get_type(e, env), get_type(body, e)));
-            extract_expr_eqns(body, e, set, new_scope.clone());
+            extract_expr_eqns(body, e, set);
         }
         Expr::EPrint(expr) => {
             set.insert((get_type(expr, env), get_type(e, env)));
-            extract_expr_eqns(expr, env, set, scope.clone());
+            extract_expr_eqns(expr, env, set);
         }
         Expr::EApp(f, args) => {
             set.insert((
@@ -169,12 +153,12 @@ fn extract_expr_eqns<'a, 'b>(
                 ),
             ));
 
-            extract_expr_eqns(f, env, set, scope.clone());
+            extract_expr_eqns(f, env, set);
             for a in args {
-                extract_expr_eqns(a, env, set, scope.clone());
+                extract_expr_eqns(a, env, set);
             }
         }
-        Expr::ELambda(_, _) => {
+        Expr::ELambda(_, _, _) => {
             // TODO
         }
     }
@@ -187,10 +171,9 @@ fn extract_prim2<'a, 'b>(
     e2: &'b Expr<'a>,
     env: &'b Expr<'a>,
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
-    scope: im::HashMap<String, &'b Expr<'a>>,
 ) {
-    extract_expr_eqns(e1, env, set, scope.clone());
-    extract_expr_eqns(e2, env, set, scope.clone());
+    extract_expr_eqns(e1, env, set);
+    extract_expr_eqns(e2, env, set);
 
     match op {
         Prim2::Add | Prim2::Minus | Prim2::Times => {
@@ -292,77 +275,6 @@ fn unify<'a, 'b>(
 
     let res: HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>> = subs.into_iter().collect();
     Ok(TypeEnv(res))
-}
-
-// extracts a TVar corresponding to a str from a binding
-fn extract_eid<'a, 'b>(
-    e: &'b Expr<'a>,
-    id: &'a str,
-    env: &'b Expr<'a>,
-) -> Option<TypeExpr<'a, 'b>> {
-    match e {
-        Expr::EId(s) => {
-            if *s == id {
-                Some(TVar(e, env))
-            } else {
-                None
-            }
-        }
-        Expr::ENum(_) | Expr::EBool(_) => None,
-        Expr::EPrim2(_, e1, e2) => {
-            let res = extract_eid(e1, id, env);
-            if res.is_some() {
-                return res;
-            }
-            extract_eid(e2, id, env)
-        }
-        Expr::EPrint(e) => extract_eid(e, id, env),
-        Expr::EIf(cond, e1, e2) => {
-            let res = extract_eid(cond, id, env);
-            if res.is_some() {
-                return res;
-            }
-            let res = extract_eid(e1, id, env);
-            if res.is_some() {
-                return res;
-            }
-            extract_eid(e2, id, env)
-        }
-        Expr::ELet(bind, body) => {
-            let mut rebound = false;
-            for Binding(x, e) in bind {
-                let res = extract_eid(e, id, env);
-                if res.is_some() {
-                    return res;
-                }
-
-                if *x == id {
-                    rebound = true;
-                }
-            }
-
-            if rebound {
-                None
-            } else {
-                extract_eid(body, id, env)
-            }
-        }
-        Expr::EApp(f, args) => {
-            let res = extract_eid(f, id, env);
-            if res.is_some() {
-                return res;
-            }
-
-            for a in args {
-                let res = extract_eid(a, id, env);
-                if res.is_some() {
-                    return res;
-                }
-            }
-            None
-        }
-        Expr::ELambda(_, _) => panic!(),
-    }
 }
 
 fn get_type<'a, 'b>(e: &'b Expr<'a>, env: &'b Expr<'a>) -> TypeExpr<'a, 'b> {

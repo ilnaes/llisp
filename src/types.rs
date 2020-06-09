@@ -127,7 +127,7 @@ fn extract_expr_eqns<'a, 'b>(
     e: &'b Expr<'a>,
     env: &'b Expr<'a>,
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
-    scope: im::HashMap<&'a str, &'b Expr<'a>>,
+    scope: im::HashMap<String, &'b Expr<'a>>,
 ) {
     match e {
         Expr::EId(_) | Expr::ENum(_) | Expr::EBool(_) => {}
@@ -150,7 +150,7 @@ fn extract_expr_eqns<'a, 'b>(
                 if let Some(y) = extract_eid(body, x, e) {
                     set.insert((y, get_type(exp, env)));
                 }
-                new_scope.insert(x, e);
+                new_scope.insert(x.to_string(), e);
             }
 
             set.insert((get_type(e, env), get_type(body, e)));
@@ -174,6 +174,9 @@ fn extract_expr_eqns<'a, 'b>(
                 extract_expr_eqns(a, env, set, scope.clone());
             }
         }
+        Expr::ELambda(_, _) => {
+            // TODO
+        }
     }
 }
 
@@ -184,7 +187,7 @@ fn extract_prim2<'a, 'b>(
     e2: &'b Expr<'a>,
     env: &'b Expr<'a>,
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
-    scope: im::HashMap<&'a str, &'b Expr<'a>>,
+    scope: im::HashMap<String, &'b Expr<'a>>,
 ) {
     extract_expr_eqns(e1, env, set, scope.clone());
     extract_expr_eqns(e2, env, set, scope.clone());
@@ -358,6 +361,7 @@ fn extract_eid<'a, 'b>(
             }
             None
         }
+        Expr::ELambda(_, _) => panic!(),
     }
 }
 

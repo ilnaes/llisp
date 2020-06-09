@@ -5,9 +5,16 @@ use regex::Regex;
 pub mod expr;
 
 const FORBIDDEN_ID_REGEX: &'static str = r"[^\w\-\?]+";
+
 const RESERVED_NAMES: &'static [&'static str] = &[
-    "let", "if", "print", "true", "false", "func", "defn", "selfref",
+    "let", "if", "print", "true", "false", "defn", "self", "lambda",
 ];
+
+fn proper_name<'a>(x: &'a str) -> bool {
+    let forbid = Regex::new(FORBIDDEN_ID_REGEX).unwrap();
+    let alpha = Regex::new(r"[a-zA-Z]").unwrap();
+    return !forbid.is_match(x) && alpha.is_match(x) && !RESERVED_NAMES.contains(&x);
+}
 
 fn parse_def<'a>(sexp: &Sexp<'a>) -> Result<Def<'a>, String> {
     match sexp {
@@ -18,8 +25,7 @@ fn parse_def<'a>(sexp: &Sexp<'a>) -> Result<Def<'a>, String> {
                 for a in args.into_iter() {
                     match a {
                         Atom(x) => {
-                            let re = Regex::new(FORBIDDEN_ID_REGEX).unwrap();
-                            if !re.is_match(x) && !RESERVED_NAMES.contains(x) {
+                            if proper_name(x) {
                                 args_vec.push(x)
                             } else {
                                 return Err(format!("Parse error: Invalid parameter {}", x));
@@ -29,8 +35,7 @@ fn parse_def<'a>(sexp: &Sexp<'a>) -> Result<Def<'a>, String> {
                     }
                 }
 
-                let re = Regex::new(FORBIDDEN_ID_REGEX).unwrap();
-                if re.is_match(f) || RESERVED_NAMES.contains(f) {
+                if !proper_name(f) {
                     return Err(format!("Parse error: Invalid function name {}", f));
                 }
 
@@ -56,8 +61,7 @@ fn parse_expr<'a>(sexp: &Sexp<'a>) -> Result<Expr<'a>, String> {
             if let Ok(i) = s.parse::<i64>() {
                 Ok(ENum(i))
             } else {
-                let re = Regex::new(FORBIDDEN_ID_REGEX).unwrap();
-                if !re.is_match(s) && !RESERVED_NAMES.contains(s) {
+                if proper_name(s) {
                     Ok(EId(s))
                 } else {
                     Err(format!("Parse error: Invalid identifier {}", s))
@@ -107,6 +111,18 @@ fn parse_expr<'a>(sexp: &Sexp<'a>) -> Result<Expr<'a>, String> {
                 Box::new(parse_expr(e2)?),
                 Box::new(parse_expr(e3)?),
             )),
+            [Atom("lambda"), List(args), body] => Ok(ELambda(
+                args.iter()
+                    .map(|x| {
+                        if let Atom(s) = x {
+                            Ok(EId(s))
+                        } else {
+                            Err(format!("Parse error: Invalid lambda argument {:?}", x))
+                        }
+                    })
+                    .collect::<Result<Vec<Expr<'a>>, String>>()?,
+                Box::new(parse_expr(body)?),
+            )),
             _ => {
                 if v.len() == 0 {
                     return Err(format!("Parse error: {:?}", sexp));
@@ -127,7 +143,13 @@ fn parse_expr<'a>(sexp: &Sexp<'a>) -> Result<Expr<'a>, String> {
 fn parse_binding<'a>(b: &Sexp<'a>) -> Result<Binding<'a>, String> {
     match b {
         List(l) => match &l[..] {
-            [Atom(x), e] => Ok(Binding(x, parse_expr(e)?)),
+            [Atom(x), e] => {
+                if proper_name(x) {
+                    Ok(Binding(x, parse_expr(e)?))
+                } else {
+                    return Err(format!("Parse error: Invalid binding {}", x));
+                }
+            }
             _ => return Err(format!("Parse error: binding {:?}", b)),
         },
         _ => return Err(format!("Parse error: binding {:?}", b)),

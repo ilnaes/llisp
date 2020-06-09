@@ -85,6 +85,7 @@ run_tests! {
 
     func_obj1: ("(defn f () 1) (defn g () 2) (defn our_main () ((if false f g)))", Runs("2")),
     func_obj2: ("(defn f (x) (+ x 1)) (defn our_main () (let ((g f)) (g 2)))", Runs("3")),
+    func_obj3: ("(defn f (x) (+ x 2)) (defn g (fn x) (fn x)) (defn our_main () (g f 1))", Runs("3")),
 
     func_err1: ("(defn f () 2)", ErrC("No our_main")),
     func_err2: ("(defn our_main () 1) (defn our_main () 2)", ErrC("Duplicate def")),

@@ -16,6 +16,7 @@ pub fn check_prog<'a, 'b>(prog: &'b [Def<'a>]) -> Result<(), String> {
     if !scope.contains("our_main") {
         return Err("Welldef error: No our_main".to_string());
     }
+    // TODO: check our_main signature
 
     for def in prog {
         let Def::FuncDef(_, args, body) = def;
@@ -32,11 +33,11 @@ pub fn check_prog<'a, 'b>(prog: &'b [Def<'a>]) -> Result<(), String> {
 }
 
 // checks for unbounded identifiers and double bindings
-pub fn check<'a, 'b>(expr: &'b Expr<'a>, scope: HashSet<&'a str>) -> Result<(), String> {
+pub fn check<'a, 'b>(expr: &'b Expr<'a>, scope: HashSet<String>) -> Result<(), String> {
     match expr {
         Expr::ENum(_) | Expr::EBool(_) => {}
         Expr::EId(x) => {
-            if !scope.contains(x) {
+            if !scope.contains(&x.to_string()) {
                 return Err(format!("Welldef error: Unbound identifier {}", x));
             }
         }
@@ -58,7 +59,7 @@ pub fn check<'a, 'b>(expr: &'b Expr<'a>, scope: HashSet<&'a str>) -> Result<(), 
                 // be sure to use old scope
                 check(e, scope.clone())?;
 
-                sc.insert(x);
+                sc.insert(x.to_string());
             }
 
             check(body, sc.clone())?;
@@ -73,6 +74,8 @@ pub fn check<'a, 'b>(expr: &'b Expr<'a>, scope: HashSet<&'a str>) -> Result<(), 
             for a in args {
                 check(a, scope.clone())?;
             }
+        }
+        Expr::ELambda(_, _) => { // TODO
         }
     }
     Ok(())

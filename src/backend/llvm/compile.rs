@@ -11,14 +11,14 @@ const FALSE_CONST: i64 = 0x2;
 pub fn compile_prog<'a, 'b>(prog: &'b [Def<'a>], typenv: &TypeEnv<'a, 'b>) -> Vec<FunDef> {
     let mut scope = Scope::new();
     let mut res = Vec::new();
-    let mut all_globals = HashMap::new();
+    let mut all_globals: HashMap<&'b Expr<'a>, bool> = HashMap::new();
 
     // register all top-level functions
     for def in prog {
         let Def::FuncDef(f, _, _) = def;
         scope.register(
             f.get_str().unwrap(),
-            Arg::AVar(Var::Global(f.get_str().unwrap().to_string())),
+            Arg::AVar(Var::Global(f.get_str().unwrap())),
         );
         all_globals.insert(f, false);
     }
@@ -37,9 +37,9 @@ pub fn compile_prog<'a, 'b>(prog: &'b [Def<'a>], typenv: &TypeEnv<'a, 'b>) -> Ve
             .map(|x| {
                 sc.register(
                     x.get_str().unwrap(),
-                    Arg::AVar(Var::Local(x.get_str().unwrap().to_string())),
+                    Arg::AVar(Var::Local(x.get_str().unwrap())),
                 );
-                x.get_str().unwrap().to_string()
+                x.get_str().unwrap()
             })
             .collect();
 
@@ -72,7 +72,7 @@ pub fn compile_prog<'a, 'b>(prog: &'b [Def<'a>], typenv: &TypeEnv<'a, 'b>) -> Ve
                         VType::I64,
                         typ,
                         ptr.clone(),
-                        Arg::AVar(Var::Global(f.get_str().unwrap().to_string())),
+                        Arg::AVar(Var::Global(f.get_str().unwrap())),
                     ),
                     Inst::IStore(VType::I64, malloc.clone(), ptr),
                     Inst::IPtrtoint(
@@ -94,7 +94,7 @@ pub fn compile_prog<'a, 'b>(prog: &'b [Def<'a>], typenv: &TypeEnv<'a, 'b>) -> Ve
         alloc.push(Inst::IRet(v));
 
         res.push(FunDef {
-            name: f.get_str().unwrap().to_string(),
+            name: f.get_str().unwrap(),
             args: a,
             inst: alloc,
         })
@@ -103,11 +103,7 @@ pub fn compile_prog<'a, 'b>(prog: &'b [Def<'a>], typenv: &TypeEnv<'a, 'b>) -> Ve
     res
 }
 
-fn hoist_globals<'a, 'b>(
-    expr: &'b Expr<'a>,
-    scope: &Scope<'a>,
-    set: &mut HashMap<&'b Expr<'a>, bool>,
-) {
+fn hoist_globals<'a, 'b>(expr: &'b Expr<'a>, scope: &Scope, set: &mut HashMap<&'b Expr<'a>, bool>) {
     match expr {
         Expr::EId(x) => match scope.get(x) {
             // this may over estimate as globals do not get shadowed
@@ -139,12 +135,13 @@ fn hoist_globals<'a, 'b>(
             }
         }
         Expr::EBool(_) | Expr::ENum(_) => {}
+        Expr::ELambda(_, _) => panic!(),
     }
 }
 
 fn compile_expr<'a, 'b>(
     expr: &'b Expr<'a>,
-    scope: Scope<'a>,
+    scope: Scope,
     gen: &mut Generator,
     env: &'b Expr<'a>,
     typenv: &TypeEnv<'a, 'b>,
@@ -193,7 +190,7 @@ fn compile_expr<'a, 'b>(
                 |(mut res, mut sc, mut all), Binding(x, e)| {
                     // be sure to use old scope
                     let (mut is, v, mut a) = compile_expr(e, scope.clone(), gen, env, typenv);
-                    sc.register(x, v);
+                    sc.register(x.to_string(), v);
 
                     all.append(&mut a);
                     res.append(&mut is);
@@ -307,6 +304,7 @@ fn compile_expr<'a, 'b>(
             ]);
             (is1, res, all1)
         }
+        Expr::ELambda(_, _) => panic!(),
     }
 }
 
@@ -314,7 +312,7 @@ fn parse_prim2<'a, 'b>(
     op: &'b Prim2,
     e1: &'b Expr<'a>,
     e2: &'b Expr<'a>,
-    scope: Scope<'a>,
+    scope: Scope,
     gen: &mut Generator,
     env: &'b Expr<'a>,
     typenv: &TypeEnv<'a, 'b>,

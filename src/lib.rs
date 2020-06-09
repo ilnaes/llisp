@@ -1,5 +1,6 @@
 mod backend;
 mod expr;
+mod lift;
 mod sexp;
 mod types;
 mod well_def;

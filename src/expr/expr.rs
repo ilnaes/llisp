@@ -15,12 +15,13 @@ pub enum Expr<'a> {
     EIf(Box<Expr<'a>>, Box<Expr<'a>>, Box<Expr<'a>>),
     EPrint(Box<Expr<'a>>),
     EApp(Box<Expr<'a>>, Vec<Expr<'a>>),
+    ELambda(Vec<Expr<'a>>, Box<Expr<'a>>),
 }
 
 impl<'a> Expr<'a> {
-    pub fn get_str(&self) -> Result<&'a str, String> {
+    pub fn get_str(&self) -> Result<String, String> {
         match self {
-            Expr::EId(s) => Ok(s),
+            Expr::EId(s) => Ok(s.to_string()),
             _ => Err("Expr not EId".to_string()),
         }
     }

@@ -21,24 +21,24 @@ impl Generator {
 }
 
 #[derive(Clone)]
-pub struct Scope<'a> {
-    map: HashMap<&'a str, Arg>,
+pub struct Scope {
+    map: HashMap<String, Arg>,
 }
 
-impl<'a> Scope<'a> {
-    pub fn new() -> Scope<'a> {
+impl Scope {
+    pub fn new() -> Scope {
         Scope {
             map: HashMap::new(),
         }
     }
 
     /// inserts a new variable
-    pub fn register(&mut self, k: &'a str, v: Arg) {
+    pub fn register(&mut self, k: String, v: Arg) {
         self.map.insert(k, v);
     }
 
     /// gets variable name associated to string
-    pub fn get(&self, s: &'a str) -> Result<Arg, String> {
+    pub fn get(&self, s: &str) -> Result<Arg, String> {
         match self.map.get(s).cloned() {
             Some(x) => Ok(x),
             None => Err(format!("Unbound identifier {}", s)),

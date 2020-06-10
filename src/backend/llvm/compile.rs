@@ -153,7 +153,7 @@ fn compile_expr<'a, 'b>(
             // static checkers will/should catch this
             match arg_scope.get(x).unwrap() {
                 Arg::AVar(_) => (vec![], arg_scope.get(x).unwrap(), vec![]),
-                _ => panic!(format!("Improper arg_scoped variable {:?}", x)),
+                _ => panic!(format!("Improper scoped variable {:?}", x)),
             }
         }
         Expr::EPrim2(op, e1, e2) => parse_prim2(
@@ -286,7 +286,10 @@ fn compile_expr<'a, 'b>(
             ]);
             (is1, res, all1)
         }
-        Expr::ELambda(_, _, _) => panic!(),
+        Expr::ELambda(_, _, _) => {
+            // TODO
+            panic!()
+        }
     }
 }
 
@@ -402,7 +405,10 @@ fn hoist_globals<'a, 'b>(
             }
         }
         Expr::EBool(_) | Expr::ENum(_) => {}
-        Expr::ELambda(_, _, _) => panic!(),
+        Expr::ELambda(_, _, _) => {
+            // TODO
+            panic!()
+        }
     }
 }
 

@@ -16,10 +16,10 @@ fn wrap(s: &str) -> String {
 fn compile(name: &str, prog: &str, val: TestType) {
     match (compile_to_string(prog), val) {
         (Err(e), ErrC(s)) => {
-            assert!(e.contains(s));
+            assert!(e.contains(s), format!("{} does not contain {}", e, s));
         }
         (Ok(s), Runs(_)) => {
-            assert!(std::fs::create_dir_all("output/").is_ok());
+            std::fs::create_dir_all("output/").expect("Could not create output dir");
 
             let mut file =
                 File::create(format!("output/{}.ll", name)).expect("Failed to create file");
@@ -34,9 +34,9 @@ fn compile(name: &str, prog: &str, val: TestType) {
                 .expect("Failed to build program");
 
             let ecode = boutput.wait_with_output().expect("failed to wait on child");
-            assert!(ecode.status.success());
+            assert!(ecode.status.success(), "Make did not succeed");
         }
-        _ => assert!(false),
+        _ => assert!(false, "Compilation status not expected"),
     };
 }
 
@@ -87,6 +87,7 @@ run_tests! {
     func_obj1: ("(defn f () 1) (defn g () 2) (defn our_main () ((if false f g)))", Runs("2")),
     func_obj2: ("(defn f (x) (+ x 1)) (defn our_main () (let ((g f)) (g 2)))", Runs("3")),
     func_obj3: ("(defn f (x) (+ x 2)) (defn g (fn x) (fn x)) (defn our_main () (g f 1))", Runs("3")),
+    func_obj4: ("(defn f (x y) (+ x y)) (defn our_main () (let ((x 1)) ((if true f f) x 2)))", Runs("3")),
 
     func_err1: ("(defn f () 2)", ErrC("No our_main")),
     func_err2: ("(defn our_main () 1) (defn our_main () 2)", ErrC("Duplicate def")),

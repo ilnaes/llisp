@@ -43,7 +43,7 @@ pub fn compile_prog<'a, 'b>(
 
         let mut a_sc = arg_scope.clone();
 
-        let mut a: Vec<String> = args
+        let mut arg_vec: Vec<String> = args
             .iter()
             .map(|x| {
                 sc.insert(x.get_str().unwrap(), f);
@@ -57,9 +57,9 @@ pub fn compile_prog<'a, 'b>(
             .collect();
 
         if let Expr::ELambda(_, _, _) = f {
-            a.push("self".to_string());
+            arg_vec.push("self".to_string());
         } else if f.get_str().unwrap() != "our_main" {
-            a.push("self".to_string());
+            arg_vec.push("self".to_string());
         }
 
         let mut insts = Vec::new();
@@ -108,7 +108,7 @@ pub fn compile_prog<'a, 'b>(
 
         res.push(FunDef {
             name: f.get_str().unwrap(),
-            args: a,
+            args: arg_vec,
             inst: alloc,
         })
     }
@@ -116,13 +116,61 @@ pub fn compile_prog<'a, 'b>(
     res
 }
 
+// get free variables
+fn get_free<'a, 'b>(
+    expr: &'b Expr<'a>,
+    mut scope: im::HashSet<String>,
+    res: &mut im::HashSet<String>,
+) {
+    match expr {
+        Expr::ENum(_) | Expr::EBool(_) => {}
+        Expr::EId(s) => {
+            if !scope.contains(&s.to_string()) {
+                res.insert(s.to_string());
+            }
+        }
+        Expr::EPrint(e) => get_free(e, scope, res),
+        Expr::EPrim2(_, e1, e2) => {
+            get_free(e1, scope.clone(), res);
+            get_free(e2, scope.clone(), res);
+        }
+        Expr::EIf(c, e1, e2) => {
+            get_free(c, scope.clone(), res);
+            get_free(e1, scope.clone(), res);
+            get_free(e2, scope.clone(), res);
+        }
+        Expr::EApp(f, args) => {
+            get_free(f, scope.clone(), res);
+            for a in args.iter() {
+                get_free(a, scope.clone(), res);
+            }
+        }
+        Expr::ELet(binds, body) => {
+            let mut sc = scope.clone();
+            for Binding(x, e) in binds.iter() {
+                get_free(e, scope.clone(), res);
+                sc.insert(x.get_str().unwrap());
+            }
+
+            get_free(body, sc, res);
+        }
+        Expr::ELambda(_, args, body) => {
+            for a in args.iter() {
+                scope.insert(a.get_str().unwrap());
+            }
+
+            get_free(body, scope, res);
+        }
+    }
+}
+
 fn compile_expr<'a, 'b>(
     expr: &'b Expr<'a>,
-    arg_scope: Scope,
-    gen: &mut Generator,
-    env: &'b Expr<'a>,
-    typenv: &TypeEnv<'a, 'b>,
-    scope: im::HashMap<String, &'b Expr<'a>>,
+    arg_scope: Scope,                         // EId -> LLVM Variable
+    gen: &mut Generator,                      // symbol generator
+    env: &'b Expr<'a>,                        // Current binding environment
+    typenv: &TypeEnv<'a, 'b>,                 // Expr -> TypeExpr
+    scope: im::HashMap<String, &'b Expr<'a>>, // EId -> binding environment
 ) -> (Vec<Inst>, Arg, Vec<Inst>) {
     match expr {
         Expr::ENum(n) => {

@@ -3,6 +3,7 @@ use super::*;
 use crate::backend::llvm::FunDef;
 use crate::expr::expr::*;
 use crate::types::TypeEnv;
+use im;
 use std::collections::HashMap;
 
 const TRUE_CONST: i64 = 0xA;
@@ -13,33 +14,41 @@ pub fn compile_prog<'a, 'b>(
     typenv: &TypeEnv<'a, 'b>,
     mut gen: Generator,
 ) -> Vec<FunDef> {
-    let mut scope = Scope::new();
-    let mut res = Vec::new();
+    let mut scope: im::HashMap<String, &'b Expr<'a>> = im::HashMap::new();
+    let mut arg_scope = Scope::new();
+    let mut res: Vec<FunDef> = Vec::new();
     let mut all_globals: HashMap<&'b Expr<'a>, bool> = HashMap::new();
 
     // register all top-level functions
     for def in prog {
         let Def::FuncDef(f, _, _) = def;
-        scope.register(
-            f.get_str().unwrap(),
-            Arg::AVar(Var::Global(f.get_str().unwrap())),
-        );
-        all_globals.insert(f, false);
+        if let Expr::EId(name) = f {
+            arg_scope.register(
+                name.to_string(),
+                Arg::AVar(Var::Global(f.get_str().unwrap())),
+            );
+            all_globals.insert(f, false);
+
+            scope.insert(name.to_string(), f);
+        }
     }
 
     for def in prog {
         let Def::FuncDef(f, args, body) = def;
         let mut globals = all_globals.clone();
+        let mut sc = scope.clone();
 
         // get all top level functions called in body
-        hoist_globals(body, &scope, &mut globals);
+        hoist_globals(body, &arg_scope, &mut globals);
 
-        let mut sc = scope.clone();
+        let mut a_sc = arg_scope.clone();
 
         let mut a: Vec<String> = args
             .iter()
             .map(|x| {
-                sc.register(
+                sc.insert(x.get_str().unwrap(), f);
+
+                a_sc.register(
                     x.get_str().unwrap(),
                     Arg::AVar(Var::Local(x.get_str().unwrap())),
                 );
@@ -47,7 +56,9 @@ pub fn compile_prog<'a, 'b>(
             })
             .collect();
 
-        if f.get_str().unwrap() != "our_main" {
+        if let Expr::ELambda(_, _, _) = f {
+            a.push("self".to_string());
+        } else if f.get_str().unwrap() != "our_main" {
             a.push("self".to_string());
         }
 
@@ -62,7 +73,7 @@ pub fn compile_prog<'a, 'b>(
             let ptr = gen.sym_arg(true);
             let val = gen.sym_arg(true);
 
-            if let Ok(typ) = typenv.get_vtype(f, f) {
+            if let Ok(typ) = typenv.get_vtype(f, f, sc.clone()) {
                 insts.append(&mut vec![
                     Inst::ICall(
                         VType::Ptr(Box::new(VType::I64)),
@@ -85,11 +96,11 @@ pub fn compile_prog<'a, 'b>(
                     ),
                 ]);
 
-                sc.register(f.get_str().unwrap(), val);
+                a_sc.register(f.get_str().unwrap(), val);
             }
         }
 
-        let (mut insts1, v, mut alloc) = compile_expr(body, sc.clone(), &mut gen, f, typenv);
+        let (mut insts1, v, mut alloc) = compile_expr(body, a_sc.clone(), &mut gen, f, typenv, sc);
         insts.append(&mut insts1);
 
         alloc.append(&mut insts);
@@ -105,48 +116,13 @@ pub fn compile_prog<'a, 'b>(
     res
 }
 
-fn hoist_globals<'a, 'b>(expr: &'b Expr<'a>, scope: &Scope, set: &mut HashMap<&'b Expr<'a>, bool>) {
-    match expr {
-        Expr::EId(x) => match scope.get(x) {
-            // this may over estimate as globals do not get shadowed
-            Ok(Arg::AVar(Var::Global(_))) => {
-                set.insert(expr, true);
-            }
-            _ => {}
-        },
-        Expr::EPrim2(_, e1, e2) => {
-            hoist_globals(e1, scope, set);
-            hoist_globals(e2, scope, set);
-        }
-        Expr::EPrint(e) => hoist_globals(e, scope, set),
-        Expr::EIf(c, e1, e2) => {
-            hoist_globals(e1, scope, set);
-            hoist_globals(e2, scope, set);
-            hoist_globals(c, scope, set);
-        }
-        Expr::EApp(f, args) => {
-            hoist_globals(f, scope, set);
-            for a in args {
-                hoist_globals(a, scope, set);
-            }
-        }
-        Expr::ELet(bind, body) => {
-            hoist_globals(body, scope, set);
-            for b in bind {
-                hoist_globals(&b.1, scope, set);
-            }
-        }
-        Expr::EBool(_) | Expr::ENum(_) => {}
-        Expr::ELambda(_, _, _) => panic!(),
-    }
-}
-
 fn compile_expr<'a, 'b>(
     expr: &'b Expr<'a>,
-    scope: Scope,
+    arg_scope: Scope,
     gen: &mut Generator,
     env: &'b Expr<'a>,
     typenv: &TypeEnv<'a, 'b>,
+    scope: im::HashMap<String, &'b Expr<'a>>,
 ) -> (Vec<Inst>, Arg, Vec<Inst>) {
     match expr {
         Expr::ENum(n) => {
@@ -164,11 +140,6 @@ fn compile_expr<'a, 'b>(
         Expr::EBool(b) => {
             let var = gen.sym_arg(true);
             (
-                // vec![Inst::IAdd1(
-                //     var.clone(),
-                //     Arg::Const(0),
-                //     Arg::Const(if *b { 1 } else { 0 }),
-                // )],
                 vec![Inst::IAdd64(
                     var.clone(),
                     Arg::Const(0),
@@ -180,45 +151,49 @@ fn compile_expr<'a, 'b>(
         }
         Expr::EId(x) => {
             // static checkers will/should catch this
-            match scope.get(x).unwrap() {
-                Arg::AVar(_) => (vec![], scope.get(x).unwrap(), vec![]),
-                _ => panic!(format!("Improper scoped variable {:?}", x)),
+            match arg_scope.get(x).unwrap() {
+                Arg::AVar(_) => (vec![], arg_scope.get(x).unwrap(), vec![]),
+                _ => panic!(format!("Improper arg_scoped variable {:?}", x)),
             }
         }
-        Expr::EPrim2(op, e1, e2) => parse_prim2(op, e1, e2, scope.clone(), gen, env, typenv),
+        Expr::EPrim2(op, e1, e2) => parse_prim2(
+            op,
+            e1,
+            e2,
+            arg_scope.clone(),
+            gen,
+            env,
+            typenv,
+            scope.clone(),
+        ),
         Expr::ELet(bind, body) => {
-            let (mut is1, scope, mut alloc) = bind.iter().fold(
-                (vec![], scope.clone(), vec![]),
-                |(mut res, mut sc, mut all), Binding(x, e)| {
-                    // be sure to use old scope
-                    let (mut is, v, mut a) = compile_expr(e, scope.clone(), gen, env, typenv);
-                    sc.register(x.get_str().unwrap(), v);
+            let mut sc = scope.clone();
+            let (mut is1, arg_scope, mut alloc) = bind.iter().fold(
+                (vec![], arg_scope.clone(), vec![]),
+                |(mut res, mut a_sc, mut all), Binding(x, e)| {
+                    // be sure to use old arg_scope
+                    let (mut is, v, mut a) =
+                        compile_expr(e, arg_scope.clone(), gen, env, typenv, scope.clone());
+                    a_sc.register(x.get_str().unwrap(), v);
+
+                    sc.insert(x.get_str().unwrap(), expr);
 
                     all.append(&mut a);
                     res.append(&mut is);
-                    (res, sc, all)
+                    (res, a_sc, all)
                 },
             );
 
-            let (mut is2, v, mut alloc1) = compile_expr(body, scope.clone(), gen, expr, typenv);
+            let (mut is2, v, mut alloc1) =
+                compile_expr(body, arg_scope.clone(), gen, expr, typenv, sc);
             is1.append(&mut is2);
             alloc.append(&mut alloc1);
             (is1, v, alloc)
         }
         Expr::EPrint(e) => {
-            let (mut is1, v1, alloc1) = compile_expr(e, scope.clone(), gen, env, typenv);
+            let (mut is1, v1, alloc1) =
+                compile_expr(e, arg_scope.clone(), gen, env, typenv, scope.clone());
 
-            // if let Ok(VType::I1) = typenv.get_vtype(e, env) {
-            //     let (mut is2, v2, mut alloc2) = bool_tail(v1.clone(), gen);
-
-            //     alloc1.append(&mut alloc2);
-            //     is1.append(&mut is2);
-            //     is1.push(Inst::ICall(
-            //         VType::Void,
-            //         Arg::AVar(Var::Global("print".to_string())),
-            //         vec![v2],
-            //     ));
-            // } else {
             is1.push(Inst::ICall(
                 VType::Void,
                 None,
@@ -229,9 +204,12 @@ fn compile_expr<'a, 'b>(
             (is1, v1, alloc1)
         }
         Expr::EIf(cond, e1, e2) => {
-            let (mut ins1, v1, mut alloc1) = compile_expr(cond, scope.clone(), gen, env, typenv);
-            let (mut ins2, v2, mut alloc2) = compile_expr(e1, scope.clone(), gen, env, typenv);
-            let (mut ins3, v3, mut alloc3) = compile_expr(e2, scope.clone(), gen, env, typenv);
+            let (mut ins1, v1, mut alloc1) =
+                compile_expr(cond, arg_scope.clone(), gen, env, typenv, scope.clone());
+            let (mut ins2, v2, mut alloc2) =
+                compile_expr(e1, arg_scope.clone(), gen, env, typenv, scope.clone());
+            let (mut ins3, v3, mut alloc3) =
+                compile_expr(e2, arg_scope.clone(), gen, env, typenv, scope.clone());
 
             let cmp = gen.sym_arg(true);
 
@@ -275,7 +253,8 @@ fn compile_expr<'a, 'b>(
             return (ins1, res, alloc1);
         }
         Expr::EApp(func, args) => {
-            let (mut is1, v1, mut all1) = compile_expr(func, scope.clone(), gen, env, typenv);
+            let (mut is1, v1, mut all1) =
+                compile_expr(func, arg_scope.clone(), gen, env, typenv, scope.clone());
             let ptr = gen.sym_arg(true);
             let load = gen.sym_arg(true);
             let fptr = gen.sym_arg(true);
@@ -283,7 +262,8 @@ fn compile_expr<'a, 'b>(
 
             let mut arg_vec = Vec::new();
             for a in args {
-                let (mut is, v, mut all) = compile_expr(a, scope.clone(), gen, env, typenv);
+                let (mut is, v, mut all) =
+                    compile_expr(a, arg_scope.clone(), gen, env, typenv, scope.clone());
                 arg_vec.push(v);
                 is1.append(&mut is);
                 all1.append(&mut all);
@@ -291,7 +271,7 @@ fn compile_expr<'a, 'b>(
 
             arg_vec.push(v1.clone());
 
-            let typ = typenv.get_vtype(func, env).unwrap();
+            let typ = typenv.get_vtype(func, env, scope.clone()).unwrap();
 
             is1.append(&mut vec![
                 Inst::IInttoptr(
@@ -314,13 +294,16 @@ fn parse_prim2<'a, 'b>(
     op: &'b Prim2,
     e1: &'b Expr<'a>,
     e2: &'b Expr<'a>,
-    scope: Scope,
+    arg_scope: Scope,
     gen: &mut Generator,
     env: &'b Expr<'a>,
     typenv: &TypeEnv<'a, 'b>,
+    scope: im::HashMap<String, &'b Expr<'a>>,
 ) -> (Vec<Inst>, Arg, Vec<Inst>) {
-    let (mut is1, v1, mut a1) = compile_expr(e1, scope.clone(), gen, env, typenv);
-    let (mut is2, v2, mut a2) = compile_expr(e2, scope.clone(), gen, env, typenv);
+    let (mut is1, v1, mut a1) =
+        compile_expr(e1, arg_scope.clone(), gen, env, typenv, scope.clone());
+    let (mut is2, v2, mut a2) =
+        compile_expr(e2, arg_scope.clone(), gen, env, typenv, scope.clone());
     let var1 = gen.sym_arg(true);
     let var2 = gen.sym_arg(true);
 
@@ -383,7 +366,47 @@ fn parse_prim2<'a, 'b>(
     (is1, res, a1)
 }
 
-fn bool_tail(cond: Arg, gen: &mut scope::Generator) -> (Vec<Inst>, Arg) {
+fn hoist_globals<'a, 'b>(
+    expr: &'b Expr<'a>,
+    arg_scope: &Scope,
+    set: &mut HashMap<&'b Expr<'a>, bool>,
+) {
+    match expr {
+        Expr::EId(x) => match arg_scope.get(x) {
+            // this may over estimate as globals do not get shadowed
+            Ok(Arg::AVar(Var::Global(_))) => {
+                set.insert(expr, true);
+            }
+            _ => {}
+        },
+        Expr::EPrim2(_, e1, e2) => {
+            hoist_globals(e1, arg_scope, set);
+            hoist_globals(e2, arg_scope, set);
+        }
+        Expr::EPrint(e) => hoist_globals(e, arg_scope, set),
+        Expr::EIf(c, e1, e2) => {
+            hoist_globals(e1, arg_scope, set);
+            hoist_globals(e2, arg_scope, set);
+            hoist_globals(c, arg_scope, set);
+        }
+        Expr::EApp(f, args) => {
+            hoist_globals(f, arg_scope, set);
+            for a in args {
+                hoist_globals(a, arg_scope, set);
+            }
+        }
+        Expr::ELet(bind, body) => {
+            hoist_globals(body, arg_scope, set);
+            for b in bind {
+                hoist_globals(&b.1, arg_scope, set);
+            }
+        }
+        Expr::EBool(_) | Expr::ENum(_) => {}
+        Expr::ELambda(_, _, _) => panic!(),
+    }
+}
+
+fn bool_tail(cond: Arg, gen: &mut Generator) -> (Vec<Inst>, Arg) {
     let v1 = gen.sym_arg(true);
     let v2 = gen.sym_arg(true);
     let v3 = gen.sym_arg(true);

@@ -1,7 +1,8 @@
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Def<'a> {
-    // first and second field Exprs will always be EId of string,
-    // it should just be string, but this is a dirty hack for type convenience
+    // second field Exprs will always be EId of string,
+    // first field will either be EId (global func) or
+    // ELambda for lifted lambda
     FuncDef(Expr<'a>, Vec<Expr<'a>>, Expr<'a>),
 }
 

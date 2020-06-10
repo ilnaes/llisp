@@ -80,6 +80,7 @@ run_tests! {
     func1: ("(defn f (x) x) (defn our_main () 2)", Runs("2")),
     func2: ("(defn f () 2) (defn g () 1) (defn our_main () (if true (g) (f)))", Runs("1")),
     func3: ("(defn f (x y) (+ x y)) (defn our_main () (f 1 2))", Runs("3")),
+    func4: ("(defn f (x y) (+ x y)) (defn our_main () (let ((x 1)) (f x 2)))", Runs("3")),
 
     fib: ("(defn f (n) (if (< n 2) 1 (+ (f (- n 1)) (f (- n 2))))) (defn our_main () (f 6))", Runs("13")),
 
@@ -113,7 +114,6 @@ run_wrap_tests! {
     def_x2: ("(let ((x (let ((x 5)) (- x 1)))) (- x 1))", Runs("3")),
     let_nested: ("(let ((x_y (+ 5 (+ 10 20)))) (* x_y x_y))", Runs("1225")),
     two_depth1: ("(let ((x 1)) (+ x (let ((y 2)) (+ x y))))", Runs("4")),
-    two_depth2: ("(let ((x 1)) (let ((y 2)) (+ x y)))", Runs("3")),
 
     fail: ("((1)", ErrC("Lex error")),
     fail2: ("(1))", ErrC("Lex error")),

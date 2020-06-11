@@ -20,7 +20,7 @@ pub fn compile_to_string(s: &str) -> Result<String, String> {
         acc
     });
 
-    let prelude = "declare void @print(i64)\ndeclare i64* @new(i64)\n";
+    let prelude = "declare void @print(i64)\ndeclare i64* @new(i64)\n\n";
 
     Ok(format!("{}{}", prelude, prog))
 }

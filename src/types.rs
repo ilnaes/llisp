@@ -55,10 +55,10 @@ pub struct TypeEnv<'a, 'b>(pub HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>>);
 fn type_to_vtype(typ: &TypeExpr) -> Result<VType, String> {
     match typ {
         TypeExpr::TNum | TypeExpr::TBool => Ok(VType::I64),
-        TypeExpr::TFun(args, ret) => {
-            let mut a: Vec<VType> = args.iter().map(|x| type_to_vtype(x).unwrap()).collect();
+        TypeExpr::TFun(args, _) => {
+            let mut a: Vec<VType> = args.iter().map(|_| VType::I64).collect();
             a.push(VType::I64);
-            Ok(VType::Func(a, Box::new(type_to_vtype(ret)?)))
+            Ok(VType::Func(a, Box::new(VType::I64)))
         }
         TypeExpr::TVar(_, _) => Err(format!("Compile error: Unbound type")),
     }

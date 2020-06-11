@@ -73,6 +73,10 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
     ) -> Result<VType, String> {
         let tv = match e {
             Expr::EId(s) => TypeExpr::TVar(e, scope.get(&s.to_string()).unwrap()),
+            Expr::ELambda(s, _, _) => {
+                let expr = scope.get(s).unwrap();
+                TypeExpr::TVar(expr, expr)
+            }
             _ => TypeExpr::TVar(e, env),
         };
 
@@ -114,6 +118,9 @@ fn extract_prog_eqns<'a, 'b>(
                 let Def::FuncDef(name2, _, _) = &prog[j];
                 set.insert((TVar(name, name2), TVar(name, name)));
             }
+        } else if let Expr::ELambda(s, _, _) = name {
+            // put the right reference into scope
+            scope.insert(s.clone(), name);
         }
     }
 
@@ -133,6 +140,16 @@ fn extract_prog_eqns<'a, 'b>(
                 Box::new(get_type(body, name, &sc)),
             ),
         ));
+
+        // add free variables into scope
+        if let Expr::ELambda(_, _, _) = name {
+            let mut free: im::HashSet<String> = im::HashSet::new();
+            get_free(name, im::HashSet::new(), &mut free);
+
+            for var in free {
+                sc.insert(var, name);
+            }
+        }
 
         extract_expr_eqns(body, name, set, sc.clone());
     }
@@ -297,7 +314,7 @@ fn unify<'a, 'b>(
 
     if PRINT {
         for e in subs.iter() {
-            eprintln!("{:?}\n  == {:?}", e.0, e.1);
+            eprintln!("{:?}\n  == \x1b[32m{:?}\x1b[0m\n", e.0, e.1);
         }
     }
 
@@ -314,7 +331,59 @@ fn get_type<'a, 'b>(
         Expr::ENum(_) => TNum,
         Expr::EBool(_) => TBool,
         Expr::EId(s) => TVar(e, scope.get(&s.to_string()).expect(&format!("Null: {}", s))),
-        Expr::ELambda(_, _, _) => TVar(e, e), // lambdas are unique
+        Expr::ELambda(s, _, _) => {
+            // lambdas are unique
+            let lam = scope.get(s).unwrap();
+            TVar(lam, lam)
+        }
         e => TVar(e, env),
+    }
+}
+
+// get free variables
+pub fn get_free<'a, 'b>(
+    expr: &'b Expr<'a>,
+    mut scope: im::HashSet<String>,
+    res: &mut im::HashSet<String>,
+) {
+    match expr {
+        Expr::ENum(_) | Expr::EBool(_) => {}
+        Expr::EId(s) => {
+            if !scope.contains(&s.to_string()) {
+                res.insert(s.to_string());
+            }
+        }
+        Expr::EPrint(e) => get_free(e, scope, res),
+        Expr::EPrim2(_, e1, e2) => {
+            get_free(e1, scope.clone(), res);
+            get_free(e2, scope.clone(), res);
+        }
+        Expr::EIf(c, e1, e2) => {
+            get_free(c, scope.clone(), res);
+            get_free(e1, scope.clone(), res);
+            get_free(e2, scope.clone(), res);
+        }
+        Expr::EApp(f, args) => {
+            get_free(f, scope.clone(), res);
+            for a in args.iter() {
+                get_free(a, scope.clone(), res);
+            }
+        }
+        Expr::ELet(binds, body) => {
+            let mut sc = scope.clone();
+            for Binding(x, e) in binds.iter() {
+                get_free(e, scope.clone(), res);
+                sc.insert(x.get_str().unwrap());
+            }
+
+            get_free(body, sc, res);
+        }
+        Expr::ELambda(_, args, body) => {
+            for a in args.iter() {
+                scope.insert(a.get_str().unwrap());
+            }
+
+            get_free(body, scope, res);
+        }
     }
 }

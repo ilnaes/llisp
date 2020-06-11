@@ -2,7 +2,7 @@ use super::scope::*;
 use super::*;
 use crate::backend::llvm::FunDef;
 use crate::expr::expr::*;
-use crate::types::TypeEnv;
+use crate::types::{get_free, TypeEnv};
 use im;
 use std::collections::HashMap;
 
@@ -30,6 +30,8 @@ pub fn compile_prog<'a, 'b>(
             all_globals.insert(f, false);
 
             scope.insert(name.to_string(), f);
+        } else if let Expr::ELambda(s, _, _) = f {
+            scope.insert(s.clone(), f);
         }
     }
 
@@ -56,48 +58,79 @@ pub fn compile_prog<'a, 'b>(
             })
             .collect();
 
+        let mut insts = Vec::new();
+
         if let Expr::ELambda(_, _, _) = f {
             arg_vec.push("self".to_string());
+
+            let mut free: im::HashSet<String> = im::HashSet::new();
+            get_free(f, im::HashSet::new(), &mut free);
+
+            let mut free: Vec<String> = free.into_iter().collect();
+            free.sort();
+
+            let selfptr = gen.sym_arg(true);
+            insts.push(Inst::IInttoptr(
+                VType::Ptr(Box::new(VType::I64)),
+                VType::I64,
+                selfptr.clone(),
+                Arg::AVar(Var::Local("self".to_string())),
+            ));
+
+            // bring closed variables into scope
+            for (i, var) in free.iter().enumerate() {
+                let slot = gen.sym_arg(true);
+                let v = gen.sym_arg(true);
+
+                insts.append(&mut vec![
+                    Inst::IGEP(
+                        VType::I64,
+                        slot.clone(),
+                        selfptr.clone(),
+                        Arg::Const((i + 1) as i64),
+                    ),
+                    Inst::ILoad(VType::I64, v.clone(), slot),
+                ]);
+
+                a_sc.register(var.clone(), v);
+            }
         } else if f.get_str().unwrap() != "our_main" {
             arg_vec.push("self".to_string());
         }
 
-        let mut insts = Vec::new();
-
-        for (f, a) in globals {
-            if !a {
+        for (f, present) in globals {
+            if !present {
                 continue;
             }
 
             let malloc = gen.sym_arg(true);
             let ptr = gen.sym_arg(true);
             let val = gen.sym_arg(true);
+            let typ = typenv.get_vtype(f, f, sc.clone()).unwrap();
 
-            if let Ok(typ) = typenv.get_vtype(f, f, sc.clone()) {
-                insts.append(&mut vec![
-                    Inst::ICall(
-                        VType::Ptr(Box::new(VType::I64)),
-                        Some(malloc.clone()),
-                        Arg::AVar(Var::Global("new".to_string())),
-                        vec![Arg::Const(2)],
-                    ),
-                    Inst::IPtrtoint(
-                        VType::I64,
-                        typ,
-                        ptr.clone(),
-                        Arg::AVar(Var::Global(f.get_str().unwrap())),
-                    ),
-                    Inst::IStore(VType::I64, malloc.clone(), ptr),
-                    Inst::IPtrtoint(
-                        VType::I64,
-                        VType::Ptr(Box::new(VType::I64)),
-                        val.clone(),
-                        malloc,
-                    ),
-                ]);
+            insts.append(&mut vec![
+                Inst::ICall(
+                    VType::Ptr(Box::new(VType::I64)),
+                    Some(malloc.clone()),
+                    Arg::AVar(Var::Global("new".to_string())),
+                    vec![Arg::Const(2)],
+                ),
+                Inst::IPtrtoint(
+                    VType::I64,
+                    typ,
+                    ptr.clone(),
+                    Arg::AVar(Var::Global(f.get_str().unwrap())),
+                ),
+                Inst::IStore(VType::I64, malloc.clone(), ptr),
+                Inst::IPtrtoint(
+                    VType::I64,
+                    VType::Ptr(Box::new(VType::I64)),
+                    val.clone(),
+                    malloc,
+                ),
+            ]);
 
-                a_sc.register(f.get_str().unwrap(), val);
-            }
+            a_sc.register(f.get_str().unwrap(), val);
         }
 
         let (mut insts1, v, mut alloc) = compile_expr(body, a_sc.clone(), &mut gen, f, typenv, sc);
@@ -106,62 +139,20 @@ pub fn compile_prog<'a, 'b>(
         alloc.append(&mut insts);
         alloc.push(Inst::IRet(v));
 
+        let s = match f {
+            Expr::EId(s) => s.to_string(),
+            Expr::ELambda(s, _, _) => s.clone(),
+            _ => panic!(format!("Compile error: Invalid function name {:?}", f)),
+        };
+
         res.push(FunDef {
-            name: f.get_str().unwrap(),
+            name: s,
             args: arg_vec,
             inst: alloc,
         })
     }
 
     res
-}
-
-// get free variables
-fn get_free<'a, 'b>(
-    expr: &'b Expr<'a>,
-    mut scope: im::HashSet<String>,
-    res: &mut im::HashSet<String>,
-) {
-    match expr {
-        Expr::ENum(_) | Expr::EBool(_) => {}
-        Expr::EId(s) => {
-            if !scope.contains(&s.to_string()) {
-                res.insert(s.to_string());
-            }
-        }
-        Expr::EPrint(e) => get_free(e, scope, res),
-        Expr::EPrim2(_, e1, e2) => {
-            get_free(e1, scope.clone(), res);
-            get_free(e2, scope.clone(), res);
-        }
-        Expr::EIf(c, e1, e2) => {
-            get_free(c, scope.clone(), res);
-            get_free(e1, scope.clone(), res);
-            get_free(e2, scope.clone(), res);
-        }
-        Expr::EApp(f, args) => {
-            get_free(f, scope.clone(), res);
-            for a in args.iter() {
-                get_free(a, scope.clone(), res);
-            }
-        }
-        Expr::ELet(binds, body) => {
-            let mut sc = scope.clone();
-            for Binding(x, e) in binds.iter() {
-                get_free(e, scope.clone(), res);
-                sc.insert(x.get_str().unwrap());
-            }
-
-            get_free(body, sc, res);
-        }
-        Expr::ELambda(_, args, body) => {
-            for a in args.iter() {
-                scope.insert(a.get_str().unwrap());
-            }
-
-            get_free(body, scope, res);
-        }
-    }
 }
 
 fn compile_expr<'a, 'b>(
@@ -198,7 +189,7 @@ fn compile_expr<'a, 'b>(
             )
         }
         Expr::EId(x) => {
-            // static checkers will/should catch this
+            // static checkers should catch this
             match arg_scope.get(x).unwrap() {
                 Arg::AVar(_) => (vec![], arg_scope.get(x).unwrap(), vec![]),
                 _ => panic!(format!("Improper scoped variable {:?}", x)),
@@ -248,7 +239,6 @@ fn compile_expr<'a, 'b>(
                 Arg::AVar(Var::Global("print".to_string())),
                 vec![v1.clone()],
             ));
-            // }
             (is1, v1, alloc1)
         }
         Expr::EIf(cond, e1, e2) => {
@@ -334,9 +324,57 @@ fn compile_expr<'a, 'b>(
             ]);
             (is1, res, all1)
         }
-        Expr::ELambda(_, _, _) => {
-            // TODO
-            panic!()
+        Expr::ELambda(f, _, _) => {
+            let mut insts = Vec::new();
+            let mut free = im::HashSet::new();
+            get_free(expr, im::HashSet::new(), &mut free);
+
+            let mut free = free.into_iter().collect::<Vec<String>>();
+
+            let malloc = gen.sym_arg(true);
+            let ptr = gen.sym_arg(true);
+            let val = gen.sym_arg(true);
+
+            let name = scope.get(f).unwrap();
+            let typ = typenv.get_vtype(name, name, scope.clone()).unwrap();
+
+            insts.append(&mut vec![
+                Inst::ICall(
+                    VType::Ptr(Box::new(VType::I64)),
+                    Some(malloc.clone()),
+                    Arg::AVar(Var::Global("new".to_string())),
+                    vec![Arg::Const(2 + free.len() as i64)],
+                ),
+                Inst::IPtrtoint(
+                    VType::I64,
+                    typ,
+                    ptr.clone(),
+                    Arg::AVar(Var::Global(f.clone())),
+                ),
+                Inst::IStore(VType::I64, malloc.clone(), ptr),
+                Inst::IPtrtoint(
+                    VType::I64,
+                    VType::Ptr(Box::new(VType::I64)),
+                    val.clone(),
+                    malloc.clone(),
+                ),
+            ]);
+
+            free.sort();
+
+            for (i, v) in free.iter().enumerate() {
+                let slot = gen.sym_arg(true);
+                insts.append(&mut vec![
+                    Inst::IGEP(
+                        VType::I64,
+                        slot.clone(),
+                        malloc.clone(),
+                        Arg::Const((i + 1) as i64),
+                    ),
+                    Inst::IStore(VType::I64, slot, arg_scope.get(v).unwrap()),
+                ]);
+            }
+            (insts, val, vec![])
         }
     }
 }
@@ -455,7 +493,6 @@ fn hoist_globals<'a, 'b>(
         Expr::EBool(_) | Expr::ENum(_) => {}
         Expr::ELambda(_, _, _) => {
             // TODO
-            panic!()
         }
     }
 }

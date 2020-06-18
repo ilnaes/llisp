@@ -93,6 +93,7 @@ pub fn compile_prog<'a, 'b>(
                 ]);
 
                 a_sc.register(var.clone(), v);
+                sc.insert(var.clone(), f);
             }
         } else if f.get_str().unwrap() != "our_main" {
             arg_vec.push("self".to_string());
@@ -259,7 +260,6 @@ fn compile_expr<'a, 'b>(
             let after = gen.sym_arg(true);
             let after_label = after.to_string();
 
-            // let typ = typenv.get_vtype(&expr, env).unwrap();
             let typ = VType::I64;
 
             ins1.append(&mut vec![
@@ -429,22 +429,18 @@ fn parse_prim2<'a, 'b>(
             let mut ins = vec![Inst::IEq(VType::I64, var1, v1, v2)];
             ins.append(&mut insts);
             (ins, res)
-            // let typ = typenv.get_vtype(&e1, env).unwrap();
-            // (vec![Inst::IEq(typ, var1.clone(), v1, v2)], var1, vec![])
         }
         Prim2::Less => {
             let (mut insts, res) = bool_tail(var1.clone(), gen);
             let mut ins = vec![Inst::ILt(var1, v1, v2)];
             ins.append(&mut insts);
             (ins, res)
-            // (vec![Inst::ILt(var1.clone(), v1, v2)], var1, vec![])
         }
         Prim2::Greater => {
             let (mut insts, res) = bool_tail(var1.clone(), gen);
             let mut ins = vec![Inst::IGt(var1, v1, v2)];
             ins.append(&mut insts);
             (ins, res)
-            // (vec![Inst::IGt(var1.clone(), v1, v2)], var1, vec![])
         }
     };
 
@@ -485,15 +481,12 @@ fn hoist_globals<'a, 'b>(
             }
         }
         Expr::ELet(bind, body) => {
-            hoist_globals(body, arg_scope, set);
             for b in bind {
                 hoist_globals(&b.1, arg_scope, set);
             }
+            hoist_globals(body, arg_scope, set);
         }
-        Expr::EBool(_) | Expr::ENum(_) => {}
-        Expr::ELambda(_, _, _) => {
-            // TODO
-        }
+        Expr::EBool(_) | Expr::ENum(_) | Expr::ELambda(_, _, _) => {}
     }
 }
 

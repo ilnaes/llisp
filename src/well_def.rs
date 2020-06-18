@@ -5,18 +5,22 @@ pub fn check_prog<'a, 'b>(prog: &'b [Def<'a>]) -> Result<(), String> {
     let mut scope = HashSet::new();
     for def in prog {
         match def {
-            Def::FuncDef(f, _, _) => {
-                if let Some(_) = scope.insert(f.get_str().unwrap()) {
-                    return Err(format!("Welldef error: Duplicate defs {:?}", f));
+            Def::FuncDef(Expr::EId(s), arg, _) => {
+                if let Some(_) = scope.insert(s.to_string()) {
+                    return Err(format!("Welldef error: Duplicate defs {:?}", s));
+                }
+
+                if s == &"our_main" && arg.len() > 0 {
+                    return Err("Welldef error: our_main cannot have arguments".to_string());
                 }
             }
+            _ => {}
         }
     }
 
     if !scope.contains("our_main") {
         return Err("Welldef error: No our_main".to_string());
     }
-    // TODO: check our_main signature
 
     for def in prog {
         let Def::FuncDef(_, args, body) = def;
@@ -78,7 +82,13 @@ pub fn check<'a, 'b>(expr: &'b Expr<'a>, scope: HashSet<String>) -> Result<(), S
                 check(a, scope.clone())?;
             }
         }
-        Expr::ELambda(_, _, _) => { // TODO
+        Expr::ELambda(_, args, body) => {
+            let mut sc = scope.clone();
+            for x in args.iter() {
+                sc.insert(x.get_str().unwrap());
+            }
+
+            check(body, sc)?;
         }
     }
     Ok(())

@@ -95,6 +95,9 @@ run_tests! {
     func_err4: ("(defn f (x) y) (defn our_main () 2)", ErrC("Unbound")),
     func_err5: ("(defn f () true) (defn g () 1) (defn our_main () (if true f g))", ErrC("Type inference conflict")),
     func_err6: ("(defn f () true) (defn our_main () ((if true f f) 1))", ErrC("Type inference conflict")),
+
+    clos1: ("(defn add (x) (lambda (y) (+ x y))) (defn our_main () (let ((f (add 1))) (f 2)))", Runs("3")),
+    clos2: ("(defn double (f) (lambda (x) (+ (f x) (f x)))) (defn our_main () ((double (lambda (x) (+ x 3))) 1))", Runs("8")),
 }
 
 macro_rules! run_wrap_tests {

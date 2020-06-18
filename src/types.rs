@@ -72,7 +72,13 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         scope: im::HashMap<String, &'b Expr<'a>>,
     ) -> Result<VType, String> {
         let tv = match e {
-            Expr::EId(s) => TypeExpr::TVar(e, scope.get(&s.to_string()).unwrap()),
+            Expr::EId(s) => TypeExpr::TVar(
+                e,
+                scope.get(&s.to_string()).expect(&format!(
+                    "{} unbound\n\nenv: {:?}\n\nscope: {:?}",
+                    s, env, scope
+                )),
+            ),
             Expr::ELambda(s, _, _) => {
                 let expr = scope.get(s).unwrap();
                 TypeExpr::TVar(expr, expr)
@@ -101,22 +107,34 @@ fn extract_prog_eqns<'a, 'b>(
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
 ) {
     // keep track of when identifiers are introduced
+    // also used to have one canonical reference for a lambda
     let mut scope: im::HashMap<String, &'b Expr<'a>> = im::HashMap::new();
 
     // gather all declared top level functions
-    for i in 0..prog.len() {
-        let Def::FuncDef(name, _, _) = &prog[i];
+    for f in prog.iter() {
+        let Def::FuncDef(name, _, _) = f;
 
         if let Expr::EId(s) = name {
             // if non-lambda func, then populate into namespace
-            // of any other function
+            // of any other non-lambda function
 
             scope.insert(s.to_string(), name);
 
-            // TODO: rule out argument shadows
-            for j in (i + 1)..prog.len() {
-                let Def::FuncDef(name2, _, _) = &prog[j];
-                set.insert((TVar(name, name2), TVar(name, name)));
+            for f1 in prog.iter() {
+                let Def::FuncDef(name2, args, _) = f1;
+                if let Expr::ELambda(_, _, _) = name2 {
+                    continue;
+                }
+
+                // arguments do not shadow f
+                if !args
+                    .iter()
+                    .map(|x| x.get_str().unwrap())
+                    .collect::<Vec<String>>()
+                    .contains(&s.to_string())
+                {
+                    set.insert((TVar(name, name2), TVar(name, name)));
+                }
             }
         } else if let Expr::ELambda(s, _, _) = name {
             // put the right reference into scope
@@ -155,7 +173,7 @@ fn extract_prog_eqns<'a, 'b>(
     }
 }
 
-// returns a list of type equations
+// appends type equations to set
 fn extract_expr_eqns<'a, 'b>(
     e: &'b Expr<'a>,
     env: &'b Expr<'a>,

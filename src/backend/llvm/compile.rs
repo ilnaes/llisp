@@ -6,6 +6,12 @@ use crate::types::{get_free, TypeEnv};
 use im;
 use std::collections::HashMap;
 
+// tags:
+// XXX1 - int
+// 0010 - false
+// 1010 - true
+// X000 - heap alloc
+
 const TRUE_CONST: i64 = 0xA;
 const FALSE_CONST: i64 = 0x2;
 
@@ -195,6 +201,56 @@ fn compile_expr<'a, 'b>(
                 Arg::AVar(_) => (vec![], arg_scope.get(x).unwrap(), vec![]),
                 _ => panic!(format!("Improper scoped variable {:?}", x)),
             }
+        }
+        Expr::ETup(vars) => {
+            let mut insts = vec![];
+            let mut all1 = vec![];
+
+            let malloc = gen.sym_arg(true);
+            let num_vars = gen.sym_arg(true);
+            let val = gen.sym_arg(true);
+
+            // malloc enough space
+            insts.append(&mut vec![
+                Inst::ICall(
+                    VType::Ptr(Box::new(VType::I64)),
+                    Some(malloc.clone()),
+                    Arg::AVar(Var::Global("new".to_string())),
+                    vec![Arg::Const(1 + vars.len() as i64)],
+                ),
+                Inst::IAdd64(
+                    num_vars.clone(),
+                    Arg::Const(0),
+                    Arg::Const(vars.len() as i64),
+                ),
+                Inst::IStore(VType::I64, malloc.clone(), num_vars),
+                Inst::IPtrtoint(
+                    VType::I64,
+                    VType::Ptr(Box::new(VType::I64)),
+                    val.clone(),
+                    malloc.clone(),
+                ),
+            ]);
+
+            // store items
+            for (i, v) in vars.iter().enumerate() {
+                let (mut is, res, mut all) =
+                    compile_expr(v, arg_scope.clone(), gen, env, typenv, scope.clone());
+                all1.append(&mut all);
+                insts.append(&mut is);
+
+                let slot = gen.sym_arg(true);
+                insts.append(&mut vec![
+                    Inst::IGEP(
+                        VType::I64,
+                        slot.clone(),
+                        malloc.clone(),
+                        Arg::Const((i + 1) as i64),
+                    ),
+                    Inst::IStore(VType::I64, slot, res),
+                ]);
+            }
+            (insts, val, all1)
         }
         Expr::EPrim2(op, e1, e2) => parse_prim2(
             op,
@@ -464,6 +520,11 @@ fn hoist_globals<'a, 'b>(
             }
             _ => {}
         },
+        Expr::ETup(vars) => {
+            for v in vars {
+                hoist_globals(v, arg_scope, set);
+            }
+        }
         Expr::EPrim2(_, e1, e2) => {
             hoist_globals(e1, arg_scope, set);
             hoist_globals(e2, arg_scope, set);

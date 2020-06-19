@@ -8,7 +8,7 @@ pub mod expr;
 const FORBIDDEN_ID_REGEX: &'static str = r"[^\w\-\?]+";
 
 const RESERVED_NAMES: &'static [&'static str] = &[
-    "let", "if", "print", "true", "false", "defn", "self", "lambda",
+    "let", "if", "print", "true", "false", "defn", "self", "lambda", "tup",
 ];
 
 fn proper_name<'a>(x: &'a str) -> bool {
@@ -129,6 +129,7 @@ fn parse_expr<'a>(sexp: &Sexp<'a>, gen: &mut Generator) -> Result<Expr<'a>, Stri
                 ))
             }
             _ => {
+                // variable length lists
                 if v.len() == 0 {
                     return Err(format!("Parse error: {:?}", sexp));
                 }
@@ -139,7 +140,16 @@ fn parse_expr<'a>(sexp: &Sexp<'a>, gen: &mut Generator) -> Result<Expr<'a>, Stri
                     args.push(parse_expr(&v[i], gen)?)
                 }
 
-                Ok(EApp(Box::new(parse_expr(&v[0], gen)?), args))
+                match v[0] {
+                    Atom("tup") => {
+                        if args.len() == 0 {
+                            return Err(format!("Parse error: Empty tuple {:?}", sexp));
+                        }
+
+                        Ok(ETup(args))
+                    }
+                    _ => Ok(EApp(Box::new(parse_expr(&v[0], gen)?), args)),
+                }
             }
         },
     }

@@ -12,6 +12,7 @@ pub enum TypeExpr<'a, 'b> {
     TNum,
     TBool,
     TFun(Vec<TypeExpr<'a, 'b>>, Box<TypeExpr<'a, 'b>>),
+    TTup(Vec<TypeExpr<'a, 'b>>),
 
     // an expression and a pointer to when it's defined
     TVar(&'b Expr<'a>, &'b Expr<'a>),
@@ -54,7 +55,7 @@ pub struct TypeEnv<'a, 'b>(pub HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>>);
 
 fn type_to_vtype(typ: &TypeExpr) -> Result<VType, String> {
     match typ {
-        TypeExpr::TNum | TypeExpr::TBool => Ok(VType::I64),
+        TypeExpr::TNum | TypeExpr::TBool | TypeExpr::TTup(_) => Ok(VType::I64),
         TypeExpr::TFun(args, _) => {
             let mut a: Vec<VType> = args.iter().map(|_| VType::I64).collect();
             a.push(VType::I64);
@@ -181,7 +182,7 @@ fn extract_expr_eqns<'a, 'b>(
     scope: im::HashMap<String, &'b Expr<'a>>,
 ) {
     match e {
-        Expr::EId(_) | Expr::ENum(_) | Expr::EBool(_) | Expr::ELambda(_, _, _) => {}
+        Expr::EId(_) | Expr::ENum(_) | Expr::EBool(_) | Expr::ELambda(_, _, _) | Expr::ETup(_) => {}
         Expr::EPrim2(op, e1, e2) => extract_prim2(e, op, e1, e2, env, set, scope.clone()),
         Expr::EIf(cond, e1, e2) => {
             extract_expr_eqns(cond, env, set, scope.clone());
@@ -277,6 +278,11 @@ fn subst<'a, 'b>(
                 e
             }
         }
+        TTup(vars) => TTup(
+            vars.into_iter()
+                .map(|x| subst(x, from, to.clone()))
+                .collect(),
+        ),
         TFun(args, ret) => TFun(
             args.into_iter()
                 .map(|x| subst(x, from, to.clone()))
@@ -326,6 +332,14 @@ fn unify<'a, 'b>(
                 }
                 eqns.push((*ret1, *ret2));
             }
+            Some((TypeExpr::TTup(mut vars1), TypeExpr::TTup(mut vars2))) => {
+                if vars1.len() != vars2.len() {
+                    return Err("Type inference conflict".to_string());
+                }
+                for _ in 0..vars1.len() {
+                    eqns.push((vars1.pop().unwrap(), vars2.pop().unwrap()));
+                }
+            }
             _ => return Err("Type inference conflict".to_string()),
         }
     }
@@ -354,6 +368,7 @@ fn get_type<'a, 'b>(
             let lam = scope.get(s).unwrap();
             TVar(lam, lam)
         }
+        Expr::ETup(vars) => TTup(vars.into_iter().map(|x| get_type(x, env, scope)).collect()),
         e => TVar(e, env),
     }
 }
@@ -402,6 +417,11 @@ pub fn get_free<'a, 'b>(
             }
 
             get_free(body, scope, res);
+        }
+        Expr::ETup(vars) => {
+            for v in vars.iter() {
+                get_free(v, scope.clone(), res);
+            }
         }
     }
 }

@@ -6,6 +6,7 @@
 
 #define TRUE 0x000000000000000AL
 #define FALSE 0x0000000000000002L
+#define MASK 0xFFFFFFFFFFFFFFF8L
 #define HEAP_SIZE 100000
 
 #define NUM_MIN (-(1L << 62))
@@ -30,17 +31,26 @@ void error(int64_t val) {
 }
 
 void print(int64_t val) {
-  if ((val & 0x1L) == 0) {
+  if ((val & 0x1L) == 1) {
+    fprintf(stdout, "%" PRId64, val >> 1);
+  } else {
     if (val == TRUE)
-      fprintf(stdout, "%s\n", "true");
+      fprintf(stdout, "%s", "true");
     else if (val == FALSE)
-      fprintf(stdout, "%s\n", "false");
-    else {
+      fprintf(stdout, "%s", "false");
+    else if ((val & 0x7) == 0) {
+      fprintf(stdout, "tup ");
+      int64_t *ptr = (int64_t *)(val & MASK);
+      int64_t n = *ptr;
+
+      for (int i = 0; i < n; i++) {
+        print(ptr[i + 1]);
+        fprintf(stdout, " ");
+      }
+    } else {
       fprintf(stderr, "UNKNOWN: %" PRId64 "\n", val);
       exit(1);
     }
-  } else {
-    fprintf(stdout, "%" PRId64 "\n", val >> 1);
   }
 }
 
@@ -61,5 +71,6 @@ int main() {
   mem = calloc(HEAP_SIZE, sizeof(int64_t));
   int64_t result = our_main();
   print(result);
+  fprintf(stdout, "\n");
   return 0;
 }

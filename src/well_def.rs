@@ -45,6 +45,11 @@ pub fn check<'a, 'b>(expr: &'b Expr<'a>, scope: HashSet<String>) -> Result<(), S
                 return Err(format!("Welldef error: Unbound identifier {}", x));
             }
         }
+        Expr::ETup(vars) => {
+            for v in vars {
+                check(v, scope.clone())?;
+            }
+        }
         Expr::EPrint(e) => {
             check(e, scope.clone())?;
         }

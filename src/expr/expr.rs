@@ -11,6 +11,7 @@ pub enum Expr<'a> {
     ENum(i64),
     EBool(bool),
     EId(&'a str),
+    ETup(Vec<Expr<'a>>),
     EPrim2(Prim2, Box<Expr<'a>>, Box<Expr<'a>>),
     ELet(Vec<Binding<'a>>, Box<Expr<'a>>),
     EIf(Box<Expr<'a>>, Box<Expr<'a>>, Box<Expr<'a>>),

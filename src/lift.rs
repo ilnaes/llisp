@@ -15,6 +15,11 @@ pub fn lift<'a>(mut prog: Vec<Def<'a>>) -> Vec<Def<'a>> {
 fn lift_lambdas<'a, 'b>(expr: &'b Expr<'a>, lams: &mut Vec<Def<'a>>) {
     match expr {
         Expr::ENum(_) | Expr::EBool(_) | Expr::EId(_) => {}
+        Expr::ETup(vars) => {
+            for v in vars.iter() {
+                lift_lambdas(v, lams);
+            }
+        }
         Expr::EPrint(e) => lift_lambdas(e, lams),
         Expr::EPrim2(_, e1, e2) => {
             lift_lambdas(e1, lams);

@@ -30,7 +30,7 @@ void error(int64_t val) {
   exit(1);
 }
 
-void print(int64_t val) {
+void pr(int64_t val) {
   if ((val & 0x1L) == 1) {
     fprintf(stdout, "%" PRId64, val >> 1);
   } else {
@@ -39,19 +39,29 @@ void print(int64_t val) {
     else if (val == FALSE)
       fprintf(stdout, "%s", "false");
     else if ((val & 0x7) == 0) {
-      fprintf(stdout, "tup ");
+      fprintf(stdout, "( ");
       int64_t *ptr = (int64_t *)(val & MASK);
       int64_t n = *ptr;
 
       for (int i = 0; i < n; i++) {
-        print(ptr[i + 1]);
-        fprintf(stdout, " ");
+        pr(ptr[i + 1]);
+        if (i < n - 1) {
+          fprintf(stdout, ", ");
+        } else {
+          fprintf(stdout, " ");
+        }
       }
+      fprintf(stdout, ")");
     } else {
       fprintf(stderr, "UNKNOWN: %" PRId64 "\n", val);
       exit(1);
     }
   }
+}
+
+void print(int64_t val) {
+  pr(val);
+  fprintf(stdout, "\n");
 }
 
 int64_t *new (int64_t size) {
@@ -71,6 +81,5 @@ int main() {
   mem = calloc(HEAP_SIZE, sizeof(int64_t));
   int64_t result = our_main();
   print(result);
-  fprintf(stdout, "\n");
   return 0;
 }

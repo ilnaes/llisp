@@ -5,8 +5,13 @@ A lisp-like language written in Rust.  WIP.
 A program like
 
 ```
-(defn add (x) (lambda (y) (+ x y)))
-(defn our_main () (let ((f (add 1))) (f 2)))
+(defn add (x)
+    (lambda (y)
+        (+ x y)))
+
+(defn our_main ()
+    (let ((f (add 1)))
+        (f 2)))
 ```
 
 gets compiled to
@@ -50,6 +55,7 @@ define i64 @our_main() {
   ret i64 %sym22
 }
 ```
+(_n.b._ integer values are tagged so their representations are different in the compiled version)
 
 Supported + Wish list:
 
@@ -59,4 +65,6 @@ Supported + Wish list:
 - [x] Type inference
 - [x] Closures
 - [ ] Lists
+- [ ] Strings
+- [ ] Macros
 - [ ] Memory management

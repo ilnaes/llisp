@@ -145,4 +145,6 @@ run_wrap_tests! {
 
     welldef_error1: ("(if (< 1 0) 0 x)", ErrC("Welldef error: Unbound")),
     welldef_error2: ("(let ((x 1) (y 2) (x 1)) x)", ErrC("Welldef error: Duplicate")),
+
+    tup1: ("(tup 1 true)", Runs("( 1, true )")),
 }

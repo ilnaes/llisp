@@ -104,7 +104,6 @@ fn extract_prog_eqns<'a, 'b>(
         if let Expr::EId(s) = f {
             // if non-lambda func, then populate into namespace
             // of any other non-lambda function
-
             scope.insert(s.to_string(), f);
         } else if let Expr::ELambda(s, _, _) = f {
             // put the right reference into scope
@@ -126,7 +125,7 @@ fn extract_prog_eqns<'a, 'b>(
             TVar(name),
             TFun(
                 args.iter().map(|x| TVar(x)).collect(),
-                Box::new(get_type(body, name, &sc)),
+                Box::new(get_type(body, &sc)),
             ),
         ));
 
@@ -140,58 +139,57 @@ fn extract_prog_eqns<'a, 'b>(
             }
         }
 
-        extract_expr_eqns(body, name, set, sc.clone());
+        extract_expr_eqns(body, set, sc.clone());
     }
 }
 
 // appends type equations to set
 fn extract_expr_eqns<'a, 'b>(
     e: &'b Expr<'a>,
-    env: &'b Expr<'a>,
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
-    scope: im::HashMap<String, &'b Expr<'a>>,
+    scope: im::HashMap<String, &'b Expr<'a>>, // canonical Expr for an identifier
 ) {
     match e {
         Expr::EId(_) | Expr::ENum(_) | Expr::EBool(_) | Expr::ELambda(_, _, _) | Expr::ETup(_) => {}
-        Expr::EPrim2(op, e1, e2) => extract_prim2(e, op, e1, e2, env, set, scope.clone()),
+        Expr::EPrim2(op, e1, e2) => extract_prim2(e, op, e1, e2, set, scope.clone()),
         Expr::EIf(cond, e1, e2) => {
-            extract_expr_eqns(cond, env, set, scope.clone());
-            extract_expr_eqns(e1, env, set, scope.clone());
-            extract_expr_eqns(e2, env, set, scope.clone());
+            extract_expr_eqns(cond, set, scope.clone());
+            extract_expr_eqns(e1, set, scope.clone());
+            extract_expr_eqns(e2, set, scope.clone());
             set.extend(vec![
-                (get_type(cond, env, &scope), TBool),
-                (get_type(e1, env, &scope), get_type(e2, env, &scope)),
-                (get_type(e, env, &scope), get_type(e1, env, &scope)),
+                (get_type(cond, &scope), TBool),
+                (get_type(e1, &scope), get_type(e2, &scope)),
+                (get_type(e, &scope), get_type(e1, &scope)),
             ]);
         }
         Expr::ELet(bind, body) => {
             let mut sc = scope.clone();
             for Binding(x, exp) in bind {
-                extract_expr_eqns(exp, env, set, scope.clone());
+                extract_expr_eqns(exp, set, scope.clone());
 
-                set.insert((TVar(x), get_type(exp, env, &scope)));
+                set.insert((TVar(x), get_type(exp, &scope)));
                 sc.insert(x.get_str().unwrap(), x);
             }
 
-            set.insert((get_type(e, env, &scope), get_type(body, e, &sc)));
-            extract_expr_eqns(body, e, set, sc);
+            set.insert((get_type(e, &scope), get_type(body, &sc)));
+            extract_expr_eqns(body, set, sc);
         }
         Expr::EPrint(expr) => {
-            set.insert((get_type(expr, env, &scope), get_type(e, env, &scope)));
-            extract_expr_eqns(expr, env, set, scope.clone());
+            set.insert((get_type(expr, &scope), get_type(e, &scope)));
+            extract_expr_eqns(expr, set, scope.clone());
         }
         Expr::EApp(f, args) => {
             set.insert((
-                get_type(f, env, &scope),
+                get_type(f, &scope),
                 TFun(
-                    args.iter().map(|x| get_type(x, env, &scope)).collect(),
-                    Box::new(get_type(e, env, &scope)),
+                    args.iter().map(|x| get_type(x, &scope)).collect(),
+                    Box::new(get_type(e, &scope)),
                 ),
             ));
 
-            extract_expr_eqns(f, env, set, scope.clone());
+            extract_expr_eqns(f, set, scope.clone());
             for a in args {
-                extract_expr_eqns(a, env, set, scope.clone());
+                extract_expr_eqns(a, set, scope.clone());
             }
         }
     }
@@ -202,32 +200,31 @@ fn extract_prim2<'a, 'b>(
     op: &'b Prim2,
     e1: &'b Expr<'a>,
     e2: &'b Expr<'a>,
-    env: &'b Expr<'a>,
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
     scope: im::HashMap<String, &'b Expr<'a>>,
 ) {
-    extract_expr_eqns(e1, env, set, scope.clone());
-    extract_expr_eqns(e2, env, set, scope.clone());
+    extract_expr_eqns(e1, set, scope.clone());
+    extract_expr_eqns(e2, set, scope.clone());
 
     match op {
         Prim2::Add | Prim2::Minus | Prim2::Times => {
             set.extend(vec![
-                (get_type(e1, env, &scope), TNum),
-                (get_type(e2, env, &scope), TNum),
-                (get_type(e, env, &scope), TNum),
+                (get_type(e1, &scope), TNum),
+                (get_type(e2, &scope), TNum),
+                (get_type(e, &scope), TNum),
             ]);
         }
         Prim2::Less | Prim2::Greater => {
             set.extend(vec![
-                (get_type(e1, env, &scope), TNum),
-                (get_type(e2, env, &scope), TNum),
-                (get_type(e, env, &scope), TBool),
+                (get_type(e1, &scope), TNum),
+                (get_type(e2, &scope), TNum),
+                (get_type(e, &scope), TBool),
             ]);
         }
         Prim2::Equal => {
             set.extend(vec![
-                (get_type(e1, env, &scope), get_type(e2, env, &scope)),
-                (get_type(e, env, &scope), TBool),
+                (get_type(e1, &scope), get_type(e2, &scope)),
+                (get_type(e, &scope), TBool),
             ]);
         }
     }
@@ -326,7 +323,6 @@ fn unify<'a, 'b>(
 
 fn get_type<'a, 'b>(
     e: &'b Expr<'a>,
-    env: &'b Expr<'a>,
     scope: &im::HashMap<String, &'b Expr<'a>>,
 ) -> TypeExpr<'a, 'b> {
     match e {
@@ -338,7 +334,7 @@ fn get_type<'a, 'b>(
             let lam = scope.get(s).unwrap();
             TVar(lam)
         }
-        Expr::ETup(vars) => TTup(vars.into_iter().map(|x| get_type(x, env, scope)).collect()),
+        Expr::ETup(vars) => TTup(vars.into_iter().map(|x| get_type(x, scope)).collect()),
         e => TVar(e),
     }
 }

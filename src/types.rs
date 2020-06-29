@@ -14,8 +14,8 @@ pub enum TypeExpr<'a, 'b> {
     TFun(Vec<TypeExpr<'a, 'b>>, Box<TypeExpr<'a, 'b>>),
     TTup(Vec<TypeExpr<'a, 'b>>),
 
-    // an expression and a pointer to when it's defined
-    TVar(&'b Expr<'a>, &'b Expr<'a>),
+    // type variable identified by a pointer to the node in the ast
+    TVar(&'b Expr<'a>),
 }
 
 use TypeExpr::*;
@@ -24,14 +24,7 @@ impl<'a, 'b> PartialEq for TypeExpr<'a, 'b> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (TNum, TNum) | (TBool, TBool) => true,
-            (TVar(x1, p1), TVar(x2, p2)) => {
-                if x1 != x2 {
-                    false
-                } else {
-                    // we test strict equality of the parent
-                    ptr::eq(*p1, *p2)
-                }
-            }
+            (TVar(p1), TVar(p2)) => ptr::eq(*p1, *p2),
             (TFun(a1, r1), TFun(a2, r2)) => {
                 if a1.len() != a2.len() {
                     false
@@ -61,7 +54,7 @@ fn type_to_vtype(typ: &TypeExpr) -> Result<VType, String> {
             a.push(VType::I64);
             Ok(VType::Func(a, Box::new(VType::I64)))
         }
-        TypeExpr::TVar(_, _) => Err(format!("Compile error: Unbound type")),
+        TypeExpr::TVar(_) => Err(format!("Compile error: Unbound type")),
     }
 }
 
@@ -69,27 +62,20 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
     pub fn get_vtype(
         &self,
         e: &'b Expr<'a>,
-        env: &'b Expr<'a>,
         scope: im::HashMap<String, &'b Expr<'a>>,
     ) -> Result<VType, String> {
         let tv = match e {
             Expr::EId(s) => TypeExpr::TVar(
-                e,
-                scope.get(&s.to_string()).expect(&format!(
-                    "{} unbound\n\nenv: {:?}\n\nscope: {:?}",
-                    s, env, scope
-                )),
+                scope
+                    .get(&s.to_string())
+                    .expect(&format!("{} unbound\n\nscope: {:?}", s, scope)),
             ),
-            Expr::ELambda(s, _, _) => {
-                let expr = scope.get(s).unwrap();
-                TypeExpr::TVar(expr, expr)
-            }
-            _ => TypeExpr::TVar(e, env),
+            _ => TypeExpr::TVar(e),
         };
 
         match self.0.get(&tv) {
             Some(x) => type_to_vtype(x),
-            _ => Err(format!("Compile error: Unbound type {:?} {:?}", e, env)),
+            _ => Err(format!("Compile error: Unbound type {:?}", e)),
         }
     }
 
@@ -107,39 +93,22 @@ fn extract_prog_eqns<'a, 'b>(
     prog: &'b [Def<'a>],
     set: &mut HashSet<(TypeExpr<'a, 'b>, TypeExpr<'a, 'b>)>,
 ) {
-    // keep track of when identifiers are introduced
+    // environment: keeps track of when identifiers are introduced
     // also used to have one canonical reference for a lambda
     let mut scope: im::HashMap<String, &'b Expr<'a>> = im::HashMap::new();
 
     // gather all declared top level functions
-    for f in prog.iter() {
-        let Def::FuncDef(name, _, _) = f;
+    for def in prog.iter() {
+        let Def::FuncDef(f, _, _) = def;
 
-        if let Expr::EId(s) = name {
+        if let Expr::EId(s) = f {
             // if non-lambda func, then populate into namespace
             // of any other non-lambda function
 
-            scope.insert(s.to_string(), name);
-
-            for f1 in prog.iter() {
-                let Def::FuncDef(name2, args, _) = f1;
-                if let Expr::ELambda(_, _, _) = name2 {
-                    continue;
-                }
-
-                // arguments do not shadow f
-                if !args
-                    .iter()
-                    .map(|x| x.get_str().unwrap())
-                    .collect::<Vec<String>>()
-                    .contains(&s.to_string())
-                {
-                    set.insert((TVar(name, name2), TVar(name, name)));
-                }
-            }
-        } else if let Expr::ELambda(s, _, _) = name {
+            scope.insert(s.to_string(), f);
+        } else if let Expr::ELambda(s, _, _) = f {
             // put the right reference into scope
-            scope.insert(s.clone(), name);
+            scope.insert(s.clone(), f);
         }
     }
 
@@ -148,25 +117,26 @@ fn extract_prog_eqns<'a, 'b>(
 
         let mut sc = scope.clone();
 
+        // args shadow global funcs
         for a in args.iter() {
-            sc.insert(a.get_str().unwrap(), name);
+            sc.insert(a.get_str().unwrap(), a);
         }
 
         set.insert((
-            TVar(name, name),
+            TVar(name),
             TFun(
-                args.iter().map(|x| TVar(x, name)).collect(),
+                args.iter().map(|x| TVar(x)).collect(),
                 Box::new(get_type(body, name, &sc)),
             ),
         ));
 
-        // add free variables into scope
+        // bring free variables into scope
         if let Expr::ELambda(_, _, _) = name {
-            let mut free: im::HashSet<String> = im::HashSet::new();
+            let mut free: im::HashSet<&'b Expr<'a>> = im::HashSet::new();
             get_free(name, im::HashSet::new(), &mut free);
 
             for var in free {
-                sc.insert(var, name);
+                sc.insert(var.get_str().unwrap(), var);
             }
         }
 
@@ -199,8 +169,8 @@ fn extract_expr_eqns<'a, 'b>(
             for Binding(x, exp) in bind {
                 extract_expr_eqns(exp, env, set, scope.clone());
 
-                set.insert((TVar(x, e), get_type(exp, env, &scope)));
-                sc.insert(x.get_str().unwrap(), e);
+                set.insert((TVar(x), get_type(exp, env, &scope)));
+                sc.insert(x.get_str().unwrap(), x);
             }
 
             set.insert((get_type(e, env, &scope), get_type(body, e, &sc)));
@@ -271,7 +241,7 @@ fn subst<'a, 'b>(
     match e {
         TNum => e,
         TBool => e,
-        TVar(_, _) => {
+        TVar(_) => {
             if from == &e {
                 to
             } else {
@@ -300,10 +270,10 @@ fn unify<'a, 'b>(
     loop {
         match eqns.pop() {
             None => break,
-            Some((TypeExpr::TVar(exp, p), other)) | Some((other, TypeExpr::TVar(exp, p))) => {
-                let texpr = TypeExpr::TVar(exp, p);
+            Some((TypeExpr::TVar(exp), other)) | Some((other, TypeExpr::TVar(exp))) => {
+                let texpr = TypeExpr::TVar(exp);
 
-                // TODO: occurence check
+                // TODO: occurs check
 
                 subs = subs
                     .into_iter()
@@ -362,28 +332,28 @@ fn get_type<'a, 'b>(
     match e {
         Expr::ENum(_) => TNum,
         Expr::EBool(_) => TBool,
-        Expr::EId(s) => TVar(e, scope.get(&s.to_string()).expect(&format!("Null: {}", s))),
+        Expr::EId(s) => TVar(scope.get(&s.to_string()).expect(&format!("Null: {}", s))),
         Expr::ELambda(s, _, _) => {
             // lambdas are unique
             let lam = scope.get(s).unwrap();
-            TVar(lam, lam)
+            TVar(lam)
         }
         Expr::ETup(vars) => TTup(vars.into_iter().map(|x| get_type(x, env, scope)).collect()),
-        e => TVar(e, env),
+        e => TVar(e),
     }
 }
 
-// get free variables
+// get free variables, added to res
 pub fn get_free<'a, 'b>(
     expr: &'b Expr<'a>,
     mut scope: im::HashSet<String>,
-    res: &mut im::HashSet<String>,
+    res: &mut im::HashSet<&'b Expr<'a>>,
 ) {
     match expr {
         Expr::ENum(_) | Expr::EBool(_) => {}
         Expr::EId(s) => {
             if !scope.contains(&s.to_string()) {
-                res.insert(s.to_string());
+                res.insert(expr);
             }
         }
         Expr::EPrint(e) => get_free(e, scope, res),

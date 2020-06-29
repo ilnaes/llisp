@@ -54,7 +54,7 @@ pub fn compile_prog<'a, 'b>(
         let mut arg_vec: Vec<String> = args
             .iter()
             .map(|x| {
-                sc.insert(x.get_str().unwrap(), f);
+                sc.insert(x.get_str().unwrap(), x);
 
                 a_sc.register(
                     x.get_str().unwrap(),
@@ -69,11 +69,10 @@ pub fn compile_prog<'a, 'b>(
         if let Expr::ELambda(_, _, _) = f {
             arg_vec.push("self".to_string());
 
-            let mut free: im::HashSet<String> = im::HashSet::new();
+            let mut free: im::HashSet<&'b Expr<'a>> = im::HashSet::new();
             get_free(f, im::HashSet::new(), &mut free);
 
-            let mut free: Vec<String> = free.into_iter().collect();
-            free.sort();
+            let free: Vec<&'b Expr<'a>> = free.into_iter().collect();
 
             let selfptr = gen.sym_arg(true);
             insts.push(Inst::IInttoptr(
@@ -98,8 +97,8 @@ pub fn compile_prog<'a, 'b>(
                     Inst::ILoad(VType::I64, v.clone(), slot),
                 ]);
 
-                a_sc.register(var.clone(), v);
-                sc.insert(var.clone(), f);
+                a_sc.register(var.clone().get_str().unwrap(), v);
+                sc.insert(var.clone().get_str().unwrap(), var);
             }
         } else if f.get_str().unwrap() != "our_main" {
             arg_vec.push("self".to_string());
@@ -113,7 +112,7 @@ pub fn compile_prog<'a, 'b>(
             let malloc = gen.sym_arg(true);
             let ptr = gen.sym_arg(true);
             let val = gen.sym_arg(true);
-            let typ = typenv.get_vtype(f, f, sc.clone()).unwrap();
+            let typ = typenv.get_vtype(f, sc.clone()).unwrap();
 
             insts.append(&mut vec![
                 Inst::ICall(
@@ -272,7 +271,7 @@ fn compile_expr<'a, 'b>(
                         compile_expr(e, arg_scope.clone(), gen, env, typenv, scope.clone());
                     a_sc.register(x.get_str().unwrap(), v);
 
-                    sc.insert(x.get_str().unwrap(), expr);
+                    sc.insert(x.get_str().unwrap(), x);
 
                     all.append(&mut a);
                     res.append(&mut is);
@@ -365,7 +364,7 @@ fn compile_expr<'a, 'b>(
 
             arg_vec.push(v1.clone());
 
-            let typ = typenv.get_vtype(func, env, scope.clone()).unwrap();
+            let typ = typenv.get_vtype(func, scope.clone()).unwrap();
 
             is1.append(&mut vec![
                 Inst::IInttoptr(
@@ -385,14 +384,17 @@ fn compile_expr<'a, 'b>(
             let mut free = im::HashSet::new();
             get_free(expr, im::HashSet::new(), &mut free);
 
-            let mut free = free.into_iter().collect::<Vec<String>>();
+            let free = free
+                .into_iter()
+                .map(|x| x.get_str().unwrap())
+                .collect::<Vec<String>>();
 
             let malloc = gen.sym_arg(true);
             let ptr = gen.sym_arg(true);
             let val = gen.sym_arg(true);
 
             let name = scope.get(f).unwrap();
-            let typ = typenv.get_vtype(name, name, scope.clone()).unwrap();
+            let typ = typenv.get_vtype(name, scope.clone()).unwrap();
 
             insts.append(&mut vec![
                 Inst::ICall(
@@ -415,8 +417,6 @@ fn compile_expr<'a, 'b>(
                     malloc.clone(),
                 ),
             ]);
-
-            free.sort();
 
             for (i, v) in free.iter().enumerate() {
                 let slot = gen.sym_arg(true);

@@ -83,6 +83,7 @@ run_tests! {
     func4: ("(defn f (x y) (+ x y)) (defn our_main () (let ((x 1)) (f x 2)))", Runs("3")),
 
     fib: ("(defn f (n) (if (< n 2) 1 (+ (f (- n 1)) (f (- n 2))))) (defn our_main () (f 6))", Runs("13")),
+    mutrec: ("(defn even (n) (if (== n 0) true (odd (- n 1)))) (defn odd (n) (if (== n 0) false (even (- n 1)))) (defn our_main () (even 20))", Runs("true")),
 
     func_obj1: ("(defn f () 1) (defn g () 2) (defn our_main () ((if false f g)))", Runs("2")),
     func_obj2: ("(defn f (x) (+ x 1)) (defn our_main () (let ((g f)) (g 2)))", Runs("3")),

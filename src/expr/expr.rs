@@ -17,7 +17,7 @@ pub enum Expr<'a> {
     EIf(Box<Expr<'a>>, Box<Expr<'a>>, Box<Expr<'a>>),
     EPrint(Box<Expr<'a>>),
     EApp(Box<Expr<'a>>, Vec<Expr<'a>>),
-    ELambda(String, Vec<Expr<'a>>, Box<Expr<'a>>),
+    ELambda(String, Vec<Expr<'a>>, Box<Expr<'a>>), // string is name of function in LLVM
 }
 
 impl<'a> Expr<'a> {

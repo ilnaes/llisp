@@ -59,12 +59,14 @@ define i64 @our_main() {
 
 Supported + Wish list:
 
-- [x] Let bindings
 - [x] Basic primitive operations
+- [x] Let bindings
 - [x] Functions and function calls
 - [x] Type inference
 - [x] Closures
+- [ ] Polymorphic functions
 - [ ] Lists
 - [ ] Strings
-- [ ] Macros
+- [ ] Function currying
 - [ ] Memory management
+- [ ] Macros

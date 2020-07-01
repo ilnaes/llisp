@@ -103,6 +103,8 @@ fn extract_prog_eqns<'a, 'b>(
     // environment: keeps track of when identifiers are introduced
     // also used to have one canonical reference for a lambda
     let mut scope: im::HashMap<String, &'b Expr<'a>> = im::HashMap::new();
+
+    // decompose into SCC of mutually recursive functions
     let groups = scc::scc(prog);
 
     for group in groups.iter() {

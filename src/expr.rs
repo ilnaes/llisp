@@ -5,16 +5,18 @@ use regex::Regex;
 
 pub mod expr;
 
-const FORBIDDEN_ID_REGEX: &'static str = r"[^\w\-\?]+";
+const ID_PATTERN: &'static str = r"^\w[\w\d-]*$";
+
+const FORBIDDEN_SYM: &'static str = r"^sym[0-9]*$"; // syms are reserved for LLVM
 
 const RESERVED_NAMES: &'static [&'static str] = &[
     "let", "if", "print", "true", "false", "defn", "self", "lambda", "tup",
 ];
 
 fn proper_name<'a>(x: &'a str) -> bool {
-    let forbid = Regex::new(FORBIDDEN_ID_REGEX).unwrap();
-    let alpha = Regex::new(r"[a-zA-Z]").unwrap();
-    return !forbid.is_match(x) && alpha.is_match(x) && !RESERVED_NAMES.contains(&x);
+    let forbid = Regex::new(FORBIDDEN_SYM).unwrap();
+    let pattern = Regex::new(ID_PATTERN).unwrap();
+    return !forbid.is_match(x) && pattern.is_match(x) && !RESERVED_NAMES.contains(&x);
 }
 
 fn parse_def<'a>(sexp: &Sexp<'a>, gen: &mut Generator) -> Result<Def<'a>, String> {

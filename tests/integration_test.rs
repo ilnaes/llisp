@@ -123,9 +123,10 @@ run_wrap_tests! {
     fail: ("((1)", ErrC("Lex error")),
     fail2: ("(1))", ErrC("Lex error")),
     fail3: ("(1 2)", ErrC("Type inference conflict")),
-    fail4: ("(let ((let 1)) let)", ErrC("Parse error")),
-    fail5: ("(let ((a* 1)) a*)", ErrC("Parse error")),
+    fail4: ("(let ((let 1)) let)", ErrC("Parse error: Invalid")),
+    fail5: ("(let ((a* 1)) a*)", ErrC("Parse error: Invalid")),
     fail6: ("(let (()) 1)", ErrC("Parse error: binding")),
+    fail7: ("(let ((sym1 2)) sym1)", ErrC("Parse error: Invalid")),
 
     cond1: ("(if (> 1 0) 1 0)", Runs("1")),
     cond2: ("(if (< 1 0) 1 0)", Runs("0")),

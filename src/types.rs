@@ -10,11 +10,18 @@ mod scc;
 const PRINT: bool = false;
 
 #[derive(Debug, Clone, Hash)]
-pub enum TypeExpr<'a, 'b> {
+pub enum TypeCons {
     TNum,
     TBool,
-    TFun(Vec<TypeExpr<'a, 'b>>, Box<TypeExpr<'a, 'b>>),
-    TTup(Vec<TypeExpr<'a, 'b>>),
+    TArrow,
+    TTup,
+}
+
+use TypeCons::*;
+
+#[derive(Debug, Clone, Hash)]
+pub enum TypeExpr<'a, 'b> {
+    App(TypeCons, Vec<TypeExpr<'a, 'b>>),
 
     // type variable identified by a pointer to the node in the ast
     TVar(&'b Expr<'a>),
@@ -25,9 +32,9 @@ use TypeExpr::*;
 impl<'a, 'b> PartialEq for TypeExpr<'a, 'b> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (TNum, TNum) | (TBool, TBool) => true,
+            (App(TNum, _), App(TNum, _)) | (App(TBool, _), App(TBool, _)) => true,
             (TVar(p1), TVar(p2)) => ptr::eq(*p1, *p2),
-            (TFun(a1, r1), TFun(a2, r2)) => {
+            (App(TArrow, a1), App(TArrow, a2)) => {
                 if a1.len() != a2.len() {
                     false
                 } else {
@@ -36,7 +43,7 @@ impl<'a, 'b> PartialEq for TypeExpr<'a, 'b> {
                             return false;
                         }
                     }
-                    r1.eq(r2)
+                    true
                 }
             }
             _ => false,
@@ -50,12 +57,16 @@ pub struct TypeEnv<'a, 'b>(pub HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>>);
 
 fn type_to_vtype(typ: &TypeExpr) -> Result<VType, String> {
     match typ {
-        TypeExpr::TNum | TypeExpr::TBool | TypeExpr::TTup(_) => Ok(VType::I64),
-        TypeExpr::TFun(args, _) => {
-            let mut a: Vec<VType> = args.iter().map(|_| VType::I64).collect();
-            a.push(VType::I64);
-            Ok(VType::Func(a, Box::new(VType::I64)))
-        }
+        App(s, args) => match s {
+            TNum | TBool | TTup => Ok(VType::I64),
+            TArrow => {
+                // the following is correct as self is included as an argument
+                Ok(VType::Func(
+                    args.iter().map(|_| VType::I64).collect(),
+                    Box::new(VType::I64),
+                ))
+            }
+        },
         TypeExpr::TVar(_) => Err(format!("Compile error: Unbound type")),
     }
 }
@@ -132,13 +143,10 @@ fn extract_prog_eqns<'a, 'b>(
                 sc.insert(a.get_str().unwrap(), a);
             }
 
-            set.insert((
-                TVar(name),
-                TFun(
-                    args.iter().map(|x| TVar(x)).collect(),
-                    Box::new(get_type(body, &sc)),
-                ),
-            ));
+            let mut funtype: Vec<TypeExpr<'a, 'b>> = args.iter().map(|x| TVar(x)).collect();
+            funtype.push(get_type(body, &sc));
+
+            set.insert((TVar(name), App(TArrow, funtype)));
 
             // bring free variables into scope
             if let Expr::ELambda(_, _, _) = name {
@@ -169,7 +177,7 @@ fn extract_expr_eqns<'a, 'b>(
             extract_expr_eqns(e1, set, scope.clone());
             extract_expr_eqns(e2, set, scope.clone());
             set.extend(vec![
-                (get_type(cond, &scope), TBool),
+                (get_type(cond, &scope), App(TBool, vec![])),
                 (get_type(e1, &scope), get_type(e2, &scope)),
                 (get_type(e, &scope), get_type(e1, &scope)),
             ]);
@@ -191,13 +199,10 @@ fn extract_expr_eqns<'a, 'b>(
             extract_expr_eqns(expr, set, scope.clone());
         }
         Expr::EApp(f, args) => {
-            set.insert((
-                get_type(f, &scope),
-                TFun(
-                    args.iter().map(|x| get_type(x, &scope)).collect(),
-                    Box::new(get_type(e, &scope)),
-                ),
-            ));
+            let mut funtype: Vec<TypeExpr<'a, 'b>> =
+                args.iter().map(|x| get_type(x, &scope)).collect();
+            funtype.push(get_type(e, &scope));
+            set.insert((get_type(f, &scope), App(TArrow, funtype)));
 
             extract_expr_eqns(f, set, scope.clone());
             for a in args {
@@ -221,22 +226,22 @@ fn extract_prim2<'a, 'b>(
     match op {
         Prim2::Add | Prim2::Minus | Prim2::Times => {
             set.extend(vec![
-                (get_type(e1, &scope), TNum),
-                (get_type(e2, &scope), TNum),
-                (get_type(e, &scope), TNum),
+                (get_type(e1, &scope), App(TNum, vec![])),
+                (get_type(e2, &scope), App(TNum, vec![])),
+                (get_type(e, &scope), App(TNum, vec![])),
             ]);
         }
         Prim2::Less | Prim2::Greater => {
             set.extend(vec![
-                (get_type(e1, &scope), TNum),
-                (get_type(e2, &scope), TNum),
-                (get_type(e, &scope), TBool),
+                (get_type(e1, &scope), App(TNum, vec![])),
+                (get_type(e2, &scope), App(TNum, vec![])),
+                (get_type(e, &scope), App(TBool, vec![])),
             ]);
         }
         Prim2::Equal => {
             set.extend(vec![
                 (get_type(e1, &scope), get_type(e2, &scope)),
-                (get_type(e, &scope), TBool),
+                (get_type(e, &scope), App(TBool, vec![])),
             ]);
         }
     }
@@ -248,8 +253,6 @@ fn subst<'a, 'b>(
     to: TypeExpr<'a, 'b>,
 ) -> TypeExpr<'a, 'b> {
     match e {
-        TNum => e,
-        TBool => e,
         TVar(_) => {
             if from == &e {
                 to
@@ -257,17 +260,22 @@ fn subst<'a, 'b>(
                 e
             }
         }
-        TTup(vars) => TTup(
-            vars.into_iter()
-                .map(|x| subst(x, from, to.clone()))
-                .collect(),
-        ),
-        TFun(args, ret) => TFun(
-            args.into_iter()
-                .map(|x| subst(x, from, to.clone()))
-                .collect(),
-            Box::new(subst(*ret, from, to.clone())),
-        ),
+        App(con, args) => match con {
+            TNum => App(TNum, vec![]),
+            TBool => App(TBool, vec![]),
+            TTup => App(
+                TTup,
+                args.into_iter()
+                    .map(|x| subst(x, from, to.clone()))
+                    .collect(),
+            ),
+            TArrow => App(
+                TArrow,
+                args.into_iter()
+                    .map(|x| subst(x, from, to.clone()))
+                    .collect(),
+            ),
+        },
     }
 }
 
@@ -301,25 +309,26 @@ fn unify<'a, 'b>(
                     .collect();
                 subs.push((texpr, other))
             }
-            Some((TypeExpr::TNum, TypeExpr::TNum)) | Some((TypeExpr::TBool, TypeExpr::TBool)) => {}
-            Some((TypeExpr::TFun(mut arg1, ret1), TypeExpr::TFun(mut arg2, ret2))) => {
-                if arg1.len() != arg2.len() {
-                    return Err("Type inference conflict".to_string());
+            Some((App(c1, mut arg1), App(c2, mut arg2))) => match (c1, c2) {
+                (TNum, TNum) | (TBool, TBool) => {}
+                (TArrow, TArrow) => {
+                    if arg1.len() != arg2.len() {
+                        return Err("Type inference conflict".to_string());
+                    }
+                    for _ in 0..arg1.len() {
+                        eqns.push((arg1.pop().unwrap(), arg2.pop().unwrap()));
+                    }
                 }
-                for _ in 0..arg1.len() {
-                    eqns.push((arg1.pop().unwrap(), arg2.pop().unwrap()));
+                (TTup, TTup) => {
+                    if arg1.len() != arg2.len() {
+                        return Err("Type inference conflict".to_string());
+                    }
+                    for _ in 0..arg1.len() {
+                        eqns.push((arg1.pop().unwrap(), arg2.pop().unwrap()));
+                    }
                 }
-                eqns.push((*ret1, *ret2));
-            }
-            Some((TypeExpr::TTup(mut vars1), TypeExpr::TTup(mut vars2))) => {
-                if vars1.len() != vars2.len() {
-                    return Err("Type inference conflict".to_string());
-                }
-                for _ in 0..vars1.len() {
-                    eqns.push((vars1.pop().unwrap(), vars2.pop().unwrap()));
-                }
-            }
-            _ => return Err("Type inference conflict".to_string()),
+                _ => return Err("Type inference conflict".to_string()),
+            },
         }
     }
 
@@ -338,15 +347,15 @@ fn get_type<'a, 'b>(
     scope: &im::HashMap<String, &'b Expr<'a>>,
 ) -> TypeExpr<'a, 'b> {
     match e {
-        Expr::ENum(_) => TNum,
-        Expr::EBool(_) => TBool,
+        Expr::ENum(_) => App(TNum, vec![]),
+        Expr::EBool(_) => App(TBool, vec![]),
         Expr::EId(s) => TVar(scope.get(&s.to_string()).expect(&format!("Null: {}", s))),
         Expr::ELambda(s, _, _) => {
             // lambdas are unique
             let lam = scope.get(s).unwrap();
             TVar(lam)
         }
-        Expr::ETup(vars) => TTup(vars.into_iter().map(|x| get_type(x, scope)).collect()),
+        Expr::ETup(vars) => App(TTup, vars.into_iter().map(|x| get_type(x, scope)).collect()),
         e => TVar(e),
     }
 }

@@ -5,6 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::iter::Extend;
 use std::ptr;
 
+mod scc;
+
 const PRINT: bool = false;
 
 #[derive(Debug, Clone, Hash)]
@@ -70,6 +72,11 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     .get(&s.to_string())
                     .expect(&format!("{} unbound\n\nscope: {:?}", s, scope)),
             ),
+            Expr::ELambda(s, _, _) => TypeExpr::TVar(
+                scope
+                    .get(s)
+                    .expect(&format!("{} unbound\n\nscope: {:?}", s, scope)),
+            ),
             _ => TypeExpr::TVar(e),
         };
 
@@ -96,50 +103,53 @@ fn extract_prog_eqns<'a, 'b>(
     // environment: keeps track of when identifiers are introduced
     // also used to have one canonical reference for a lambda
     let mut scope: im::HashMap<String, &'b Expr<'a>> = im::HashMap::new();
+    let groups = scc::scc(prog);
 
-    // gather all declared top level functions
-    for def in prog.iter() {
-        let Def::FuncDef(f, _, _) = def;
+    for group in groups.iter() {
+        // gather top level functions
+        for def in group.iter() {
+            let Def::FuncDef(f, _, _) = def;
 
-        if let Expr::EId(s) = f {
-            // if non-lambda func, then populate into namespace
-            // of any other non-lambda function
-            scope.insert(s.to_string(), f);
-        } else if let Expr::ELambda(s, _, _) = f {
-            // put the right reference into scope
-            scope.insert(s.clone(), f);
-        }
-    }
-
-    for f in prog {
-        let Def::FuncDef(name, args, body) = f;
-
-        let mut sc = scope.clone();
-
-        // args shadow global funcs
-        for a in args.iter() {
-            sc.insert(a.get_str().unwrap(), a);
-        }
-
-        set.insert((
-            TVar(name),
-            TFun(
-                args.iter().map(|x| TVar(x)).collect(),
-                Box::new(get_type(body, &sc)),
-            ),
-        ));
-
-        // bring free variables into scope
-        if let Expr::ELambda(_, _, _) = name {
-            let mut free: im::HashSet<&'b Expr<'a>> = im::HashSet::new();
-            get_free(name, im::HashSet::new(), &mut free);
-
-            for var in free {
-                sc.insert(var.get_str().unwrap(), var);
+            if let Expr::EId(s) = f {
+                // if non-lambda func, then populate into namespace
+                // of any other non-lambda function
+                scope.insert(s.to_string(), f);
+            } else if let Expr::ELambda(s, _, _) = f {
+                // put the right reference into scope
+                scope.insert(s.clone(), f);
             }
         }
 
-        extract_expr_eqns(body, set, sc.clone());
+        for f in group.iter() {
+            let Def::FuncDef(name, args, body) = f;
+
+            let mut sc = scope.clone();
+
+            // args shadow global funcs
+            for a in args.iter() {
+                sc.insert(a.get_str().unwrap(), a);
+            }
+
+            set.insert((
+                TVar(name),
+                TFun(
+                    args.iter().map(|x| TVar(x)).collect(),
+                    Box::new(get_type(body, &sc)),
+                ),
+            ));
+
+            // bring free variables into scope
+            if let Expr::ELambda(_, _, _) = name {
+                let mut free: im::HashSet<&'b Expr<'a>> = im::HashSet::new();
+                get_free(name, im::HashSet::new(), &mut free);
+
+                for var in free {
+                    sc.insert(var.get_str().unwrap(), var);
+                }
+            }
+
+            extract_expr_eqns(body, set, sc.clone());
+        }
     }
 }
 

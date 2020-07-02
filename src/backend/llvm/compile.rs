@@ -112,7 +112,7 @@ pub fn compile_prog<'a, 'b>(
             let malloc = gen.sym_arg(true);
             let ptr = gen.sym_arg(true);
             let val = gen.sym_arg(true);
-            let typ = typenv.get_vtype(f, sc.clone()).unwrap();
+            let typ = typenv.get_vtype(f).unwrap();
 
             insts.append(&mut vec![
                 Inst::ICall(
@@ -355,7 +355,7 @@ fn compile_expr<'a, 'b>(
 
             arg_vec.push(v1.clone());
 
-            let typ = typenv.get_vtype(func, scope.clone()).unwrap();
+            let typ = typenv.get_vtype(func).unwrap();
 
             is1.append(&mut vec![
                 Inst::IInttoptr(
@@ -385,7 +385,7 @@ fn compile_expr<'a, 'b>(
             let val = gen.sym_arg(true);
 
             let name = scope.get(f).unwrap();
-            let typ = typenv.get_vtype(name, scope.clone()).unwrap();
+            let typ = typenv.get_vtype(name).unwrap();
 
             insts.append(&mut vec![
                 Inst::ICall(

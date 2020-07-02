@@ -21,10 +21,12 @@ use TypeCons::*;
 
 #[derive(Debug, Clone, Hash)]
 pub enum TypeExpr<'a, 'b> {
-    App(TypeCons, Vec<TypeExpr<'a, 'b>>),
+    TApp(TypeCons, Vec<TypeExpr<'a, 'b>>),
+    TVar(i64),
+    TPoly(Vec<i64>, Box<TypeExpr<'a, 'b>>),
 
-    // type variable identified by a pointer to the node in the ast
-    TVar(&'b Expr<'a>),
+    // type metavariable identified by a pointer to the node in the ast
+    TMeta(&'b Expr<'a>),
 }
 
 use TypeExpr::*;
@@ -32,9 +34,8 @@ use TypeExpr::*;
 impl<'a, 'b> PartialEq for TypeExpr<'a, 'b> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (App(TNum, _), App(TNum, _)) | (App(TBool, _), App(TBool, _)) => true,
-            (TVar(p1), TVar(p2)) => ptr::eq(*p1, *p2),
-            (App(TArrow, a1), App(TArrow, a2)) => {
+            (TApp(TNum, _), TApp(TNum, _)) | (TApp(TBool, _), TApp(TBool, _)) => true,
+            (TApp(TArrow, a1), TApp(TArrow, a2)) | (TApp(TTup, a1), TApp(TTup, a2)) => {
                 if a1.len() != a2.len() {
                     false
                 } else {
@@ -45,6 +46,10 @@ impl<'a, 'b> PartialEq for TypeExpr<'a, 'b> {
                     }
                     true
                 }
+            }
+            (TMeta(p1), TMeta(p2)) => {
+                // use pointer equality
+                ptr::eq(*p1, *p2)
             }
             _ => false,
         }
@@ -57,7 +62,7 @@ pub struct TypeEnv<'a, 'b>(pub HashMap<TypeExpr<'a, 'b>, TypeExpr<'a, 'b>>);
 
 fn type_to_vtype(typ: &TypeExpr) -> Result<VType, String> {
     match typ {
-        App(s, args) => match s {
+        TApp(s, args) => match s {
             TNum | TBool | TTup => Ok(VType::I64),
             TArrow => {
                 // the following is correct as self is included as an argument
@@ -67,7 +72,8 @@ fn type_to_vtype(typ: &TypeExpr) -> Result<VType, String> {
                 ))
             }
         },
-        TypeExpr::TVar(_) => Err(format!("Compile error: Unbound type")),
+        TPoly(_, ty) => type_to_vtype(ty),
+        TMeta(_) | TVar(_) => Err(format!("Compile error: Unbound type")),
     }
 }
 
@@ -78,17 +84,17 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         scope: im::HashMap<String, &'b Expr<'a>>,
     ) -> Result<VType, String> {
         let tv = match e {
-            Expr::EId(s) => TypeExpr::TVar(
+            Expr::EId(s) => TypeExpr::TMeta(
                 scope
                     .get(&s.to_string())
                     .expect(&format!("{} unbound\n\nscope: {:?}", s, scope)),
             ),
-            Expr::ELambda(s, _, _) => TypeExpr::TVar(
+            Expr::ELambda(s, _, _) => TypeExpr::TMeta(
                 scope
                     .get(s)
                     .expect(&format!("{} unbound\n\nscope: {:?}", s, scope)),
             ),
-            _ => TypeExpr::TVar(e),
+            _ => TypeExpr::TMeta(e),
         };
 
         match self.0.get(&tv) {
@@ -143,10 +149,10 @@ fn extract_prog_eqns<'a, 'b>(
                 sc.insert(a.get_str().unwrap(), a);
             }
 
-            let mut funtype: Vec<TypeExpr<'a, 'b>> = args.iter().map(|x| TVar(x)).collect();
+            let mut funtype: Vec<TypeExpr<'a, 'b>> = args.iter().map(|x| TMeta(x)).collect();
             funtype.push(get_type(body, &sc));
 
-            set.insert((TVar(name), App(TArrow, funtype)));
+            set.insert((TMeta(name), TApp(TArrow, funtype)));
 
             // bring free variables into scope
             if let Expr::ELambda(_, _, _) = name {
@@ -177,7 +183,7 @@ fn extract_expr_eqns<'a, 'b>(
             extract_expr_eqns(e1, set, scope.clone());
             extract_expr_eqns(e2, set, scope.clone());
             set.extend(vec![
-                (get_type(cond, &scope), App(TBool, vec![])),
+                (get_type(cond, &scope), TApp(TBool, vec![])),
                 (get_type(e1, &scope), get_type(e2, &scope)),
                 (get_type(e, &scope), get_type(e1, &scope)),
             ]);
@@ -187,7 +193,7 @@ fn extract_expr_eqns<'a, 'b>(
             for Binding(x, exp) in bind {
                 extract_expr_eqns(exp, set, scope.clone());
 
-                set.insert((TVar(x), get_type(exp, &scope)));
+                set.insert((TMeta(x), get_type(exp, &scope)));
                 sc.insert(x.get_str().unwrap(), x);
             }
 
@@ -202,7 +208,7 @@ fn extract_expr_eqns<'a, 'b>(
             let mut funtype: Vec<TypeExpr<'a, 'b>> =
                 args.iter().map(|x| get_type(x, &scope)).collect();
             funtype.push(get_type(e, &scope));
-            set.insert((get_type(f, &scope), App(TArrow, funtype)));
+            set.insert((get_type(f, &scope), TApp(TArrow, funtype)));
 
             extract_expr_eqns(f, set, scope.clone());
             for a in args {
@@ -226,22 +232,22 @@ fn extract_prim2<'a, 'b>(
     match op {
         Prim2::Add | Prim2::Minus | Prim2::Times => {
             set.extend(vec![
-                (get_type(e1, &scope), App(TNum, vec![])),
-                (get_type(e2, &scope), App(TNum, vec![])),
-                (get_type(e, &scope), App(TNum, vec![])),
+                (get_type(e1, &scope), TApp(TNum, vec![])),
+                (get_type(e2, &scope), TApp(TNum, vec![])),
+                (get_type(e, &scope), TApp(TNum, vec![])),
             ]);
         }
         Prim2::Less | Prim2::Greater => {
             set.extend(vec![
-                (get_type(e1, &scope), App(TNum, vec![])),
-                (get_type(e2, &scope), App(TNum, vec![])),
-                (get_type(e, &scope), App(TBool, vec![])),
+                (get_type(e1, &scope), TApp(TNum, vec![])),
+                (get_type(e2, &scope), TApp(TNum, vec![])),
+                (get_type(e, &scope), TApp(TBool, vec![])),
             ]);
         }
         Prim2::Equal => {
             set.extend(vec![
                 (get_type(e1, &scope), get_type(e2, &scope)),
-                (get_type(e, &scope), App(TBool, vec![])),
+                (get_type(e, &scope), TApp(TBool, vec![])),
             ]);
         }
     }
@@ -253,29 +259,54 @@ fn subst<'a, 'b>(
     to: TypeExpr<'a, 'b>,
 ) -> TypeExpr<'a, 'b> {
     match e {
-        TVar(_) => {
+        TMeta(_) => {
             if from == &e {
                 to
             } else {
                 e
             }
         }
-        App(con, args) => match con {
-            TNum => App(TNum, vec![]),
-            TBool => App(TBool, vec![]),
-            TTup => App(
+        TApp(con, args) => match con {
+            TNum => TApp(TNum, vec![]),
+            TBool => TApp(TBool, vec![]),
+            TTup => TApp(
                 TTup,
                 args.into_iter()
                     .map(|x| subst(x, from, to.clone()))
                     .collect(),
             ),
-            TArrow => App(
+            TArrow => TApp(
                 TArrow,
                 args.into_iter()
                     .map(|x| subst(x, from, to.clone()))
                     .collect(),
             ),
         },
+        TPoly(_, t) => subst(*t, from, to),
+        TVar(_) => e,
+    }
+}
+
+// ty1 will be a metavariable
+fn occurs<'a, 'b>(ty1: &TypeExpr<'a, 'b>, ty2: &TypeExpr<'a, 'b>, top: bool) -> bool {
+    match ty2 {
+        TMeta(_) => {
+            if top {
+                false
+            } else {
+                ty1 == ty2
+            }
+        }
+        TApp(_, args) => {
+            for a in args.iter() {
+                if occurs(ty1, a, false) {
+                    return true;
+                }
+            }
+            false
+        }
+        TPoly(_, ty) => occurs(ty1, ty, false),
+        TVar(_) => false,
     }
 }
 
@@ -287,10 +318,12 @@ fn unify<'a, 'b>(
     loop {
         match eqns.pop() {
             None => break,
-            Some((TypeExpr::TVar(exp), other)) | Some((other, TypeExpr::TVar(exp))) => {
-                let texpr = TypeExpr::TVar(exp);
+            Some((TMeta(exp), other)) | Some((other, TMeta(exp))) => {
+                let texpr = TMeta(exp);
 
-                // TODO: occurs check
+                if occurs(&texpr, &other, true) {
+                    return Err("Type inference: occurs check".to_string());
+                }
 
                 subs = subs
                     .into_iter()
@@ -309,7 +342,7 @@ fn unify<'a, 'b>(
                     .collect();
                 subs.push((texpr, other))
             }
-            Some((App(c1, mut arg1), App(c2, mut arg2))) => match (c1, c2) {
+            Some((TApp(c1, mut arg1), TApp(c2, mut arg2))) => match (c1, c2) {
                 (TNum, TNum) | (TBool, TBool) => {}
                 (TArrow, TArrow) => {
                     if arg1.len() != arg2.len() {
@@ -329,6 +362,7 @@ fn unify<'a, 'b>(
                 }
                 _ => return Err("Type inference conflict".to_string()),
             },
+            _ => return Err("Type inference conflict".to_string()),
         }
     }
 
@@ -347,16 +381,16 @@ fn get_type<'a, 'b>(
     scope: &im::HashMap<String, &'b Expr<'a>>,
 ) -> TypeExpr<'a, 'b> {
     match e {
-        Expr::ENum(_) => App(TNum, vec![]),
-        Expr::EBool(_) => App(TBool, vec![]),
-        Expr::EId(s) => TVar(scope.get(&s.to_string()).expect(&format!("Null: {}", s))),
+        Expr::ENum(_) => TApp(TNum, vec![]),
+        Expr::EBool(_) => TApp(TBool, vec![]),
+        Expr::EId(s) => TMeta(scope.get(&s.to_string()).expect(&format!("Null: {}", s))),
         Expr::ELambda(s, _, _) => {
             // lambdas are unique
             let lam = scope.get(s).unwrap();
-            TVar(lam)
+            TMeta(lam)
         }
-        Expr::ETup(vars) => App(TTup, vars.into_iter().map(|x| get_type(x, scope)).collect()),
-        e => TVar(e),
+        Expr::ETup(vars) => TApp(TTup, vars.into_iter().map(|x| get_type(x, scope)).collect()),
+        e => TMeta(e),
     }
 }
 

@@ -1,4 +1,5 @@
 use crate::expr::expr::*;
+use crate::types::get_free;
 use im::{HashMap, HashSet};
 use petgraph::{
     algo::tarjan_scc,
@@ -117,6 +118,13 @@ fn build_graph<'a, 'b>(
                     scope.insert(s);
                 }
             }
+
+            let mut free = im::HashSet::new();
+            get_free(e, im::HashSet::new(), &mut free);
+            if free.len() > 0 {
+                graph.add_edge(*node_idx.get(e).unwrap(), *node_idx.get(src).unwrap(), ());
+            }
+
             build_graph(e, body, graph, visited, scope, node_idx);
         }
     }

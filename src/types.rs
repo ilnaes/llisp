@@ -96,7 +96,13 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         // decompose into SCC of mutually recursive functions
         let groups = scc::scc(prog);
 
+        if PRINT {
+            eprintln!("{:?}", groups);
+        }
+
         for group in groups.iter() {
+            let mut free_vars: im::HashMap<String, Vec<&'b Expr<'a>>> = im::HashMap::new();
+
             // bring all functions into scope
             for def in group.iter() {
                 let Def::FuncDef(f, _, _) = def;
@@ -105,6 +111,21 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     scope.insert(s.to_string(), f);
                 } else if let Expr::ELambda(s, _, _) = f {
                     scope.insert(s.clone(), f);
+                }
+            }
+
+            // collect references to free variables in bodies of lambdas
+            for def in group.iter() {
+                if let Def::FuncDef(Expr::ELambda(s, _, _), args, body) = def {
+                    let mut free: im::HashSet<&'b Expr<'a>> = im::HashSet::new();
+                    let mut sc: im::HashSet<String> = scope.keys().collect();
+                    for a in args.iter() {
+                        sc.insert(a.get_str().unwrap());
+                    }
+
+                    get_free(body, sc, &mut free);
+
+                    free_vars.insert(s.clone(), free.into_iter().collect());
                 }
             }
 
@@ -136,13 +157,23 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     }
                 }
 
-                tenv.extract_expr_eqns(body, &mut eqns, sc.clone());
+                tenv.extract_expr_eqns(body, &mut eqns, sc.clone(), &free_vars);
             }
 
             let eqns: Vec<(Type, Type)> = eqns.into_iter().collect();
             tenv.unify(eqns)?;
 
             // generalize
+        }
+
+        if PRINT {
+            for (e, i) in tenv.var_env.iter() {
+                eprintln!(
+                    "{:?}\n  == \x1b[32m{:?}\x1b[0m\n",
+                    e.0,
+                    tenv.metas.get(i).unwrap()
+                );
+            }
         }
 
         Ok(tenv)
@@ -164,7 +195,8 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         &mut self,
         e: &'b Expr<'a>,
         set: &mut HashSet<(Type, Type)>,
-        scope: im::HashMap<String, &'b Expr<'a>>, // canonical Expr for an identifier
+        scope: im::HashMap<String, &'b Expr<'a>>, // pointer to where ident was bound
+        free: &im::HashMap<String, Vec<&'b Expr<'a>>>, // free vars of lambdas to be unified
     ) {
         match e {
             Expr::ENum(_) | Expr::EBool(_) | Expr::ETup(_) => {}
@@ -173,14 +205,25 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 set.insert((self.get(e), self.instantiate(bound)));
             }
             Expr::ELambda(s, _, _) => {
+                match free.get(s) {
+                    Some(vars) => {
+                        for v in vars.iter() {
+                            set.insert((
+                                self.get(*v),
+                                self.get(scope.get(&v.get_str().unwrap()).unwrap()),
+                            ));
+                        }
+                    }
+                    None => {}
+                }
                 let lam = scope.get(s).unwrap();
                 set.insert((self.get(e), self.get(lam)));
             }
-            Expr::EPrim2(op, e1, e2) => self.extract_prim2(e, op, e1, e2, set, scope.clone()),
+            Expr::EPrim2(op, e1, e2) => self.extract_prim2(e, op, e1, e2, set, scope.clone(), free),
             Expr::EIf(cond, e1, e2) => {
-                self.extract_expr_eqns(cond, set, scope.clone());
-                self.extract_expr_eqns(e1, set, scope.clone());
-                self.extract_expr_eqns(e2, set, scope.clone());
+                self.extract_expr_eqns(cond, set, scope.clone(), free);
+                self.extract_expr_eqns(e1, set, scope.clone(), free);
+                self.extract_expr_eqns(e2, set, scope.clone(), free);
                 set.extend(vec![
                     (self.get(cond), TApp(TBool, vec![])),
                     (self.get(e1), self.get(e2)),
@@ -190,7 +233,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             Expr::ELet(bind, body) => {
                 let mut sc = scope.clone();
                 for Binding(x, exp) in bind {
-                    self.extract_expr_eqns(exp, set, scope.clone());
+                    self.extract_expr_eqns(exp, set, scope.clone(), free);
 
                     let ty_x = self.get(x);
                     set.insert((ty_x, self.get(exp)));
@@ -198,20 +241,20 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 }
 
                 set.insert((self.get(e), self.get(body)));
-                self.extract_expr_eqns(body, set, sc);
+                self.extract_expr_eqns(body, set, sc, free);
             }
             Expr::EPrint(expr) => {
                 set.insert((self.get(expr), self.get(e)));
-                self.extract_expr_eqns(expr, set, scope.clone());
+                self.extract_expr_eqns(expr, set, scope.clone(), free);
             }
             Expr::EApp(f, args) => {
                 let mut funtype: Vec<Type> = args.iter().map(|x| self.get(x)).collect();
                 funtype.push(self.get(e));
                 set.insert((self.get(f), TApp(TArrow, funtype)));
 
-                self.extract_expr_eqns(f, set, scope.clone());
+                self.extract_expr_eqns(f, set, scope.clone(), free);
                 for a in args {
-                    self.extract_expr_eqns(a, set, scope.clone());
+                    self.extract_expr_eqns(a, set, scope.clone(), free);
                 }
             }
         }
@@ -225,9 +268,10 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         e2: &'b Expr<'a>,
         set: &mut HashSet<(Type, Type)>,
         scope: im::HashMap<String, &'b Expr<'a>>,
+        free: &im::HashMap<String, Vec<&'b Expr<'a>>>,
     ) {
-        self.extract_expr_eqns(e1, set, scope.clone());
-        self.extract_expr_eqns(e2, set, scope.clone());
+        self.extract_expr_eqns(e1, set, scope.clone(), free);
+        self.extract_expr_eqns(e2, set, scope.clone(), free);
 
         match op {
             Prim2::Add | Prim2::Minus | Prim2::Times => {
@@ -305,12 +349,6 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             }
         }
 
-        if PRINT {
-            for e in subs.iter() {
-                eprintln!("{:?}\n  == \x1b[32m{:?}\x1b[0m\n", e.0, e.1);
-            }
-        }
-
         for (l, r) in subs.into_iter() {
             if let TMeta(n) = l {
                 self.update_meta(n, r);
@@ -373,21 +411,6 @@ fn occurs<'a, 'b>(ty1: &Type, ty2: &Type, top: bool) -> bool {
         TVar(_) => false,
     }
 }
-
-// fn get_type<'a, 'b>(e: &'b Expr<'a>, scope: &im::HashMap<String, &'b Expr<'a>>) -> Type {
-//     match e {
-//         Expr::ENum(_) => TApp(TNum, vec![]),
-//         Expr::EBool(_) => TApp(TBool, vec![]),
-//         Expr::EId(s) => TMeta(scope.get(&s.to_string()).expect(&format!("Null: {}", s))),
-//         Expr::ELambda(s, _, _) => {
-//             // lambdas are unique
-//             let lam = scope.get(s).unwrap();
-//             TMeta(lam)
-//         }
-//         Expr::ETup(vars) => TApp(TTup, vars.into_iter().map(|x| get_type(x, scope)).collect()),
-//         e => TMeta(e),
-//     }
-// }
 
 // get free variables, added to res
 pub fn get_free<'a, 'b>(

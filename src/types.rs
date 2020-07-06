@@ -7,8 +7,9 @@ use std::ptr;
 
 mod scc;
 
-const PRINT: bool = false;
+const PRINT: bool = true;
 
+// a pointer equality version of &'b Expr<'a>
 #[derive(Debug, Clone, Hash)]
 struct ExprPtr<'a, 'b>(&'b Expr<'a>);
 
@@ -27,24 +28,59 @@ pub enum TypeCons {
     TTup,
 }
 
-use TypeCons::*;
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub enum Type {
     TApp(TypeCons, Vec<Type>),
+    TMeta(i64),
     TVar(i64),
     TPoly(Vec<Type>, Box<Type>),
+}
 
-    // type metavariable identified by a pointer to the node in the ast
-    TMeta(i64),
+impl std::fmt::Debug for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
+impl Type {
+    fn to_string(&self) -> String {
+        match self {
+            TMeta(n) => format!("M({})", n),
+            TApp(cons, args) => match cons {
+                TNum => "Num".to_string(),
+                TBool => "Bool".to_string(),
+                TArrow => {
+                    let mut args = args.clone();
+                    let ret = args.pop().unwrap();
+                    format!("{:?} -> {:?}", args, ret)
+                }
+                TTup => format!("{:?}", args),
+            },
+            _ => panic!(),
+        }
+    }
+
+    pub fn get_free_t(&self) -> Vec<&Type> {
+        match self {
+            TMeta(_) => vec![self],
+            TApp(cons, args) => match cons {
+                TNum | TBool => Vec::new(),
+                TArrow | TTup => args.iter().map(|x| x.get_free_t()).flatten().collect(),
+            },
+            _ => panic!("Getting free of polytype"),
+        }
+    }
 }
 
 use Type::*;
+use TypeCons::*;
 
+#[derive(Clone)]
 pub struct TypeEnv<'a, 'b> {
     var_env: HashMap<ExprPtr<'a, 'b>, i64>,
     metas: HashMap<i64, Type>,
     n: i64,
+    m: i64,
 }
 
 impl<'a, 'b> TypeEnv<'a, 'b> {
@@ -52,16 +88,6 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         match self.var_env.get(&ExprPtr(e)) {
             Some(n) => type_to_vtype(self.metas.get(n).unwrap()),
             None => Err("BAD".to_string()),
-        }
-    }
-
-    // updates a metavariable with a type
-    fn update_meta(&mut self, i: i64, ty: Type) -> bool {
-        if self.metas.contains_key(&i) {
-            self.metas.insert(i, ty);
-            true
-        } else {
-            false
         }
     }
 
@@ -90,6 +116,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             var_env: HashMap::new(),
             metas: HashMap::new(),
             n: 0,
+            m: 0,
         };
         let mut scope: im::HashMap<String, &'b Expr<'a>> = im::HashMap::new();
 
@@ -103,20 +130,17 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         for group in groups.iter() {
             let mut free_vars: im::HashMap<String, Vec<&'b Expr<'a>>> = im::HashMap::new();
 
-            // bring all functions into scope
+            // preprocess functions
             for def in group.iter() {
-                let Def::FuncDef(f, _, _) = def;
+                let Def::FuncDef(f, args, body) = def;
 
+                // bring functions into scope
                 if let Expr::EId(s) = f {
                     scope.insert(s.to_string(), f);
                 } else if let Expr::ELambda(s, _, _) = f {
                     scope.insert(s.clone(), f);
-                }
-            }
 
-            // collect references to free variables in bodies of lambdas
-            for def in group.iter() {
-                if let Def::FuncDef(Expr::ELambda(s, _, _), args, body) = def {
+                    // collect references to free variables in bodies of lambdas
                     let mut free: im::HashSet<&'b Expr<'a>> = im::HashSet::new();
                     let mut sc: im::HashSet<String> = scope.keys().collect();
                     for a in args.iter() {
@@ -157,13 +181,19 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     }
                 }
 
-                tenv.extract_expr_eqns(body, &mut eqns, sc.clone(), &free_vars);
+                tenv.extract_type(body, &mut eqns, sc.clone(), &free_vars);
             }
 
             let eqns: Vec<(Type, Type)> = eqns.into_iter().collect();
             tenv.unify(eqns)?;
 
-            // generalize
+            for Def::FuncDef(f, _, _) in group.iter() {
+                // generalize
+                let ty = tenv.get(f);
+                let ty = tenv.generalize(ty);
+                let n = tenv.var_env.get(&ExprPtr(f)).unwrap();
+                tenv.metas.insert(*n, ty);
+            }
         }
 
         if PRINT {
@@ -179,11 +209,11 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         Ok(tenv)
     }
 
-    fn generalize(&self, t: Type) -> Type {
+    fn generalize(&mut self, t: Type) -> Type {
         t
     }
 
-    fn instantiate(&self, t: Type) -> Type {
+    fn instantiate(&mut self, t: Type) -> Type {
         match t {
             TPoly(_, _) => panic!(),
             _ => t,
@@ -191,7 +221,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
     }
 
     // appends type equations to set
-    fn extract_expr_eqns(
+    fn extract_type(
         &mut self,
         e: &'b Expr<'a>,
         set: &mut HashSet<(Type, Type)>,
@@ -221,9 +251,9 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             }
             Expr::EPrim2(op, e1, e2) => self.extract_prim2(e, op, e1, e2, set, scope.clone(), free),
             Expr::EIf(cond, e1, e2) => {
-                self.extract_expr_eqns(cond, set, scope.clone(), free);
-                self.extract_expr_eqns(e1, set, scope.clone(), free);
-                self.extract_expr_eqns(e2, set, scope.clone(), free);
+                self.extract_type(cond, set, scope.clone(), free);
+                self.extract_type(e1, set, scope.clone(), free);
+                self.extract_type(e2, set, scope.clone(), free);
                 set.extend(vec![
                     (self.get(cond), TApp(TBool, vec![])),
                     (self.get(e1), self.get(e2)),
@@ -233,28 +263,31 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             Expr::ELet(bind, body) => {
                 let mut sc = scope.clone();
                 for Binding(x, exp) in bind {
-                    self.extract_expr_eqns(exp, set, scope.clone(), free);
+                    self.extract_type(exp, set, scope.clone(), free);
 
                     let ty_x = self.get(x);
-                    set.insert((ty_x, self.get(exp)));
+                    let ty_e = self.get(exp);
+
+                    // let polymorphism
+                    set.insert((ty_x, self.generalize(ty_e)));
                     sc.insert(x.get_str().unwrap(), x);
                 }
 
                 set.insert((self.get(e), self.get(body)));
-                self.extract_expr_eqns(body, set, sc, free);
+                self.extract_type(body, set, sc, free);
             }
             Expr::EPrint(expr) => {
                 set.insert((self.get(expr), self.get(e)));
-                self.extract_expr_eqns(expr, set, scope.clone(), free);
+                self.extract_type(expr, set, scope.clone(), free);
             }
             Expr::EApp(f, args) => {
                 let mut funtype: Vec<Type> = args.iter().map(|x| self.get(x)).collect();
                 funtype.push(self.get(e));
                 set.insert((self.get(f), TApp(TArrow, funtype)));
 
-                self.extract_expr_eqns(f, set, scope.clone(), free);
+                self.extract_type(f, set, scope.clone(), free);
                 for a in args {
-                    self.extract_expr_eqns(a, set, scope.clone(), free);
+                    self.extract_type(a, set, scope.clone(), free);
                 }
             }
         }
@@ -270,8 +303,8 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         scope: im::HashMap<String, &'b Expr<'a>>,
         free: &im::HashMap<String, Vec<&'b Expr<'a>>>,
     ) {
-        self.extract_expr_eqns(e1, set, scope.clone(), free);
-        self.extract_expr_eqns(e2, set, scope.clone(), free);
+        self.extract_type(e1, set, scope.clone(), free);
+        self.extract_type(e2, set, scope.clone(), free);
 
         match op {
             Prim2::Add | Prim2::Minus | Prim2::Times => {
@@ -351,7 +384,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
 
         for (l, r) in subs.into_iter() {
             if let TMeta(n) = l {
-                self.update_meta(n, r);
+                self.metas.insert(n, r);
             }
         }
 
@@ -477,7 +510,7 @@ fn type_to_vtype(typ: &Type) -> Result<VType, String> {
                 ))
             }
         },
-        TPoly(_, _) => panic!("Not implemented"),
+        TPoly(_, t) => type_to_vtype(t),
         TMeta(_) | TVar(_) => Err(format!("Compile error: Unbound type")),
     }
 }

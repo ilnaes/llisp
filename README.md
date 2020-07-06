@@ -66,7 +66,9 @@ Supported + Wish list:
 - [x] Closures
 - [ ] Polymorphic functions
 - [ ] Lists
-- [ ] Strings
+- [ ] Type definitions
 - [ ] Function currying
+- [ ] Fixed-point combinator
+- [ ] Strings
 - [ ] Memory management
 - [ ] Macros

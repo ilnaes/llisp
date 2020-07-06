@@ -7,7 +7,7 @@ use std::ptr;
 
 mod scc;
 
-const PRINT: bool = true;
+const PRINT: bool = false;
 
 // a pointer equality version of &'b Expr<'a>
 #[derive(Debug, Clone, Hash)]
@@ -31,7 +31,7 @@ pub enum TypeCons {
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub enum Type {
     TApp(TypeCons, Vec<Type>),
-    TMeta(i64),
+    TMeta(usize),
     TVar(i64),
     TPoly(Vec<Type>, Box<Type>),
 }
@@ -77,16 +77,16 @@ use TypeCons::*;
 
 #[derive(Clone)]
 pub struct TypeEnv<'a, 'b> {
-    var_env: HashMap<ExprPtr<'a, 'b>, i64>,
-    metas: HashMap<i64, Type>,
-    n: i64,
+    var_env: HashMap<ExprPtr<'a, 'b>, usize>,
+    metas: Vec<Type>,
+    n: usize,
     m: i64,
 }
 
 impl<'a, 'b> TypeEnv<'a, 'b> {
     pub fn get_vtype(&self, e: &'b Expr<'a>) -> Result<VType, String> {
         match self.var_env.get(&ExprPtr(e)) {
-            Some(n) => type_to_vtype(self.metas.get(n).unwrap()),
+            Some(n) => type_to_vtype(&self.metas[*n]),
             None => Err("BAD".to_string()),
         }
     }
@@ -99,10 +99,10 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             Expr::EBool(_) => TApp(TBool, vec![]),
             Expr::ETup(vars) => TApp(TTup, vars.into_iter().map(|x| self.get(x)).collect()),
             _ => match self.var_env.get(&ExprPtr(e)) {
-                Some(ty) => self.metas.get(ty).unwrap().clone(),
+                Some(ty) => self.metas[*ty].clone(),
                 None => {
                     let meta = TMeta(self.n);
-                    self.metas.insert(self.n, meta.clone());
+                    self.metas.push(meta.clone());
                     self.var_env.insert(ExprPtr(e), self.n);
                     self.n += 1;
                     meta
@@ -114,7 +114,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
     pub fn new(prog: &'b [Def<'a>]) -> Result<TypeEnv<'a, 'b>, String> {
         let mut tenv = TypeEnv {
             var_env: HashMap::new(),
-            metas: HashMap::new(),
+            metas: Vec::new(),
             n: 0,
             m: 0,
         };
@@ -192,17 +192,13 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 let ty = tenv.get(f);
                 let ty = tenv.generalize(ty);
                 let n = tenv.var_env.get(&ExprPtr(f)).unwrap();
-                tenv.metas.insert(*n, ty);
+                tenv.metas[*n] = ty;
             }
         }
 
         if PRINT {
             for (e, i) in tenv.var_env.iter() {
-                eprintln!(
-                    "{:?}\n  == \x1b[32m{:?}\x1b[0m\n",
-                    e.0,
-                    tenv.metas.get(i).unwrap()
-                );
+                eprintln!("{:?}\n  == \x1b[32m{:?}\x1b[0m\n", e.0, tenv.metas[*i]);
             }
         }
 
@@ -384,7 +380,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
 
         for (l, r) in subs.into_iter() {
             if let TMeta(n) = l {
-                self.metas.insert(n, r);
+                self.metas[n] = r;
             }
         }
 

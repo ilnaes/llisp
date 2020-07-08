@@ -32,7 +32,7 @@ pub enum TypeCons {
 pub enum Type {
     TApp(TypeCons, Vec<Type>),
     TMeta(usize),
-    TVar(i64),
+    TVar(usize),
     TPoly(Vec<Type>, Box<Type>),
 }
 
@@ -52,7 +52,7 @@ impl Type {
                 TArrow => {
                     let mut args = args.clone();
                     let ret = args.pop().unwrap();
-                    format!("{:?} -> {:?}", args, ret)
+                    format!("{{{:?} -> {:?}}}", args, ret)
                 }
                 TTup => format!("{:?}", args),
             },
@@ -80,14 +80,14 @@ pub struct TypeEnv<'a, 'b> {
     var_env: HashMap<ExprPtr<'a, 'b>, usize>,
     metas: Vec<Type>,
     n: usize,
-    m: i64,
+    m: usize,
 }
 
 impl<'a, 'b> TypeEnv<'a, 'b> {
     pub fn get_vtype(&self, e: &'b Expr<'a>) -> Result<VType, String> {
         match self.var_env.get(&ExprPtr(e)) {
             Some(n) => type_to_vtype(&self.metas[*n]),
-            None => Err("BAD".to_string()),
+            None => Err(format!("Unbound type during compile: {:?}\n", e)),
         }
     }
 
@@ -124,10 +124,13 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         let groups = scc::scc(prog);
 
         if PRINT {
-            eprintln!("{:?}", groups);
+            for g in groups.iter() {
+                eprintln!("{:?}\n\n", g);
+            }
         }
 
         for group in groups.iter() {
+            let start = tenv.n;
             let mut free_vars: im::HashMap<String, Vec<&'b Expr<'a>>> = im::HashMap::new();
 
             // preprocess functions
@@ -153,7 +156,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 }
             }
 
-            let mut eqns: HashSet<(Type, Type)> = HashSet::new();
+            // let mut eqns: HashSet<(Type, Type)> = HashSet::new();
 
             for def in group.iter() {
                 let Def::FuncDef(f, args, body) = def;
@@ -169,7 +172,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 funtype.push(tenv.get(body));
 
                 // instantiate as monomorphic function
-                eqns.insert((f_typ, TApp(TArrow, funtype)));
+                tenv.unify(f_typ, TApp(TArrow, funtype), start)?;
 
                 // bring free variables into scope
                 if let Expr::ELambda(_, _, _) = f {
@@ -181,11 +184,11 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     }
                 }
 
-                tenv.extract_type(body, &mut eqns, sc.clone(), &free_vars);
+                tenv.extract_type(body, sc.clone(), &free_vars, start)?;
             }
 
-            let eqns: Vec<(Type, Type)> = eqns.into_iter().collect();
-            tenv.unify(eqns)?;
+            // let eqns: Vec<(Type, Type)> = eqns.into_iter().collect();
+            // tenv.unify_eqns(eqns)?;
 
             for Def::FuncDef(f, _, _) in group.iter() {
                 // generalize
@@ -205,6 +208,172 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         Ok(tenv)
     }
 
+    fn unify(&mut self, t1: Type, t2: Type, start: usize) -> Result<(), String> {
+        if t1 == t2 {
+            return Ok(());
+        }
+
+        match (t1, t2) {
+            (TMeta(mid), other) | (other, TMeta(mid)) => {
+                let texpr = TMeta(mid);
+
+                if occurs(&texpr, &other, true) {
+                    return Err("Type inference: occurs check".to_string());
+                }
+
+                for i in start..self.metas.len() {
+                    self.metas[i] = subst(self.metas[i].clone(), &texpr, other.clone())
+                }
+                self.metas[mid] = other
+            }
+            (TApp(c1, arg1), TApp(c2, arg2)) => match (c1, c2) {
+                (TNum, TNum) | (TBool, TBool) => {}
+                (TArrow, TArrow) => {
+                    if arg1.len() != arg2.len() {
+                        return Err("Type inference conflict".to_string());
+                    }
+                    for i in 0..arg1.len() {
+                        self.unify(arg1[i].clone(), arg2[i].clone(), start)?
+                    }
+                }
+                (TTup, TTup) => {
+                    if arg1.len() != arg2.len() {
+                        return Err("Type inference conflict".to_string());
+                    }
+                    for i in 0..arg1.len() {
+                        self.unify(arg1[i].clone(), arg2[i].clone(), start)?
+                    }
+                }
+                _ => return Err("Type inference conflict".to_string()),
+            },
+            _ => return Err("Type inference conflict".to_string()),
+        }
+
+        Ok(())
+    }
+
+    fn extract_type(
+        &mut self,
+        e: &'b Expr<'a>,
+        scope: im::HashMap<String, &'b Expr<'a>>, // pointer to where ident was bound
+        free: &im::HashMap<String, Vec<&'b Expr<'a>>>, // free vars of lambdas to be unified
+        start: usize,
+    ) -> Result<Type, String> {
+        let res = match e {
+            Expr::ENum(_) => TApp(TNum, vec![]),
+            Expr::EBool(_) => TApp(TBool, vec![]),
+            Expr::ETup(arg) => {
+                let mut tup = vec![];
+                for a in arg.iter() {
+                    tup.push(self.extract_type(a, scope.clone(), free, start)?);
+                }
+
+                TApp(TTup, tup)
+            }
+            Expr::EId(s) => {
+                let typ = self.get(*scope.get(&s.to_string()).unwrap());
+                self.instantiate(typ)
+            }
+            Expr::EPrint(expr) => self.extract_type(expr, scope.clone(), free, start)?,
+            Expr::EIf(cond, e1, e2) => {
+                let cond_t = self.extract_type(cond, scope.clone(), free, start)?;
+                self.unify(cond_t, TApp(TBool, vec![]), start)?;
+
+                let e1_t = self.extract_type(e1, scope.clone(), free, start)?;
+                let e2_t = self.extract_type(e2, scope.clone(), free, start)?;
+                self.unify(e1_t.clone(), e2_t, start)?;
+
+                e1_t
+            }
+            Expr::EPrim2(op, e1, e2) => self.extract_prim2(e, op, e1, e2, scope, free, start)?,
+            Expr::EApp(f, arg) => {
+                let mut arg_vec = vec![];
+                for a in arg.iter() {
+                    let a_t = self.extract_type(a, scope.clone(), free, start)?;
+                    arg_vec.push(a_t);
+                }
+
+                let typ = self.get(e);
+                arg_vec.push(typ.clone());
+
+                let f_t = self.extract_type(f, scope, free, start)?;
+                self.unify(f_t, TApp(TArrow, arg_vec), start)?;
+                self.get(e)
+            }
+            Expr::ELet(bind, body) => {
+                let mut sc = scope.clone();
+                for Binding(x, exp) in bind {
+                    let x_t = self.get(x);
+                    let exp_t = self.extract_type(exp, scope.clone(), free, start)?;
+                    let gen_t = self.generalize(exp_t);
+
+                    // let polymorphism
+                    self.unify(x_t, gen_t, start)?;
+                    sc.insert(x.get_str().unwrap(), x);
+                }
+
+                self.extract_type(body, sc, free, start)?
+            }
+            Expr::ELambda(s, _, _) => {
+                match free.get(s) {
+                    Some(vars) => {
+                        for v in vars.iter() {
+                            let free_t = self.get(*v);
+                            let local_t = self.get(scope.get(&v.get_str().unwrap()).unwrap());
+                            self.unify(free_t, local_t, start)?;
+                        }
+                    }
+                    None => {}
+                }
+                self.get(scope.get(s).unwrap())
+            }
+        };
+
+        let self_t = self.get(e);
+        self.unify(self_t, res.clone(), start)?;
+
+        Ok(res)
+    }
+
+    fn extract_prim2(
+        &mut self,
+        e: &'b Expr<'a>,
+        op: &'b Prim2,
+        e1: &'b Expr<'a>,
+        e2: &'b Expr<'a>,
+        scope: im::HashMap<String, &'b Expr<'a>>,
+        free: &im::HashMap<String, Vec<&'b Expr<'a>>>,
+        start: usize,
+    ) -> Result<Type, String> {
+        let e1_t = self.extract_type(e1, scope.clone(), free, start)?;
+        let e2_t = self.extract_type(e2, scope.clone(), free, start)?;
+
+        match op {
+            Prim2::Add | Prim2::Minus | Prim2::Times => {
+                self.unify(e1_t, TApp(TNum, vec![]), start)?;
+                self.unify(e2_t, TApp(TNum, vec![]), start)?;
+
+                let self_t = self.get(e);
+                self.unify(self_t, TApp(TNum, vec![]), start)?;
+            }
+            Prim2::Less | Prim2::Greater => {
+                self.unify(e1_t, TApp(TNum, vec![]), start)?;
+                self.unify(e2_t, TApp(TNum, vec![]), start)?;
+
+                let self_t = self.get(e);
+                self.unify(self_t, TApp(TBool, vec![]), start)?;
+            }
+            Prim2::Equal => {
+                self.unify(e1_t, e2_t, start)?;
+
+                let self_t = self.get(e);
+                self.unify(self_t, TApp(TBool, vec![]), start)?;
+            }
+        }
+
+        Ok(self.get(e))
+    }
+
     fn generalize(&mut self, t: Type) -> Type {
         t
     }
@@ -214,177 +383,6 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             TPoly(_, _) => panic!(),
             _ => t,
         }
-    }
-
-    // appends type equations to set
-    fn extract_type(
-        &mut self,
-        e: &'b Expr<'a>,
-        set: &mut HashSet<(Type, Type)>,
-        scope: im::HashMap<String, &'b Expr<'a>>, // pointer to where ident was bound
-        free: &im::HashMap<String, Vec<&'b Expr<'a>>>, // free vars of lambdas to be unified
-    ) {
-        match e {
-            Expr::ENum(_) | Expr::EBool(_) | Expr::ETup(_) => {}
-            Expr::EId(s) => {
-                let bound = self.get(*scope.get(&s.to_string()).unwrap());
-                set.insert((self.get(e), self.instantiate(bound)));
-            }
-            Expr::ELambda(s, _, _) => {
-                match free.get(s) {
-                    Some(vars) => {
-                        for v in vars.iter() {
-                            set.insert((
-                                self.get(*v),
-                                self.get(scope.get(&v.get_str().unwrap()).unwrap()),
-                            ));
-                        }
-                    }
-                    None => {}
-                }
-                let lam = scope.get(s).unwrap();
-                set.insert((self.get(e), self.get(lam)));
-            }
-            Expr::EPrim2(op, e1, e2) => self.extract_prim2(e, op, e1, e2, set, scope.clone(), free),
-            Expr::EIf(cond, e1, e2) => {
-                self.extract_type(cond, set, scope.clone(), free);
-                self.extract_type(e1, set, scope.clone(), free);
-                self.extract_type(e2, set, scope.clone(), free);
-                set.extend(vec![
-                    (self.get(cond), TApp(TBool, vec![])),
-                    (self.get(e1), self.get(e2)),
-                    (self.get(e), self.get(e1)),
-                ]);
-            }
-            Expr::ELet(bind, body) => {
-                let mut sc = scope.clone();
-                for Binding(x, exp) in bind {
-                    self.extract_type(exp, set, scope.clone(), free);
-
-                    let ty_x = self.get(x);
-                    let ty_e = self.get(exp);
-
-                    // let polymorphism
-                    set.insert((ty_x, self.generalize(ty_e)));
-                    sc.insert(x.get_str().unwrap(), x);
-                }
-
-                set.insert((self.get(e), self.get(body)));
-                self.extract_type(body, set, sc, free);
-            }
-            Expr::EPrint(expr) => {
-                set.insert((self.get(expr), self.get(e)));
-                self.extract_type(expr, set, scope.clone(), free);
-            }
-            Expr::EApp(f, args) => {
-                let mut funtype: Vec<Type> = args.iter().map(|x| self.get(x)).collect();
-                funtype.push(self.get(e));
-                set.insert((self.get(f), TApp(TArrow, funtype)));
-
-                self.extract_type(f, set, scope.clone(), free);
-                for a in args {
-                    self.extract_type(a, set, scope.clone(), free);
-                }
-            }
-        }
-    }
-
-    fn extract_prim2(
-        &mut self,
-        e: &'b Expr<'a>,
-        op: &'b Prim2,
-        e1: &'b Expr<'a>,
-        e2: &'b Expr<'a>,
-        set: &mut HashSet<(Type, Type)>,
-        scope: im::HashMap<String, &'b Expr<'a>>,
-        free: &im::HashMap<String, Vec<&'b Expr<'a>>>,
-    ) {
-        self.extract_type(e1, set, scope.clone(), free);
-        self.extract_type(e2, set, scope.clone(), free);
-
-        match op {
-            Prim2::Add | Prim2::Minus | Prim2::Times => {
-                set.extend(vec![
-                    (self.get(e1), TApp(TNum, vec![])),
-                    (self.get(e2), TApp(TNum, vec![])),
-                    (self.get(e), TApp(TNum, vec![])),
-                ]);
-            }
-            Prim2::Less | Prim2::Greater => {
-                set.extend(vec![
-                    (self.get(e1), TApp(TNum, vec![])),
-                    (self.get(e2), TApp(TNum, vec![])),
-                    (self.get(e), TApp(TBool, vec![])),
-                ]);
-            }
-            Prim2::Equal => {
-                set.extend(vec![
-                    (self.get(e1), self.get(e2)),
-                    (self.get(e), TApp(TBool, vec![])),
-                ]);
-            }
-        }
-    }
-
-    fn unify(&mut self, mut eqns: Vec<(Type, Type)>) -> Result<(), String> {
-        let mut subs = Vec::new();
-
-        loop {
-            match eqns.pop() {
-                None => break,
-                Some((TMeta(exp), other)) | Some((other, TMeta(exp))) => {
-                    let texpr = TMeta(exp);
-
-                    if occurs(&texpr, &other, true) {
-                        return Err("Type inference: occurs check".to_string());
-                    }
-
-                    subs = subs
-                        .into_iter()
-                        .map(|x: (Type, Type)| (x.0, subst(x.1, &texpr, other.clone())))
-                        .collect();
-                    eqns = eqns
-                        .into_iter()
-                        .map(|x: (Type, Type)| {
-                            (
-                                subst(x.0, &texpr, other.clone()),
-                                subst(x.1, &texpr, other.clone()),
-                            )
-                        })
-                        .collect();
-                    subs.push((texpr, other))
-                }
-                Some((TApp(c1, mut arg1), TApp(c2, mut arg2))) => match (c1, c2) {
-                    (TNum, TNum) | (TBool, TBool) => {}
-                    (TArrow, TArrow) => {
-                        if arg1.len() != arg2.len() {
-                            return Err("Type inference conflict".to_string());
-                        }
-                        for _ in 0..arg1.len() {
-                            eqns.push((arg1.pop().unwrap(), arg2.pop().unwrap()));
-                        }
-                    }
-                    (TTup, TTup) => {
-                        if arg1.len() != arg2.len() {
-                            return Err("Type inference conflict".to_string());
-                        }
-                        for _ in 0..arg1.len() {
-                            eqns.push((arg1.pop().unwrap(), arg2.pop().unwrap()));
-                        }
-                    }
-                    _ => return Err("Type inference conflict".to_string()),
-                },
-                _ => return Err("Type inference conflict".to_string()),
-            }
-        }
-
-        for (l, r) in subs.into_iter() {
-            if let TMeta(n) = l {
-                self.metas[n] = r;
-            }
-        }
-
-        Ok(())
     }
 }
 

@@ -64,7 +64,9 @@ impl Type {
                 TNum | TBool => im::HashSet::new(),
                 TArrow | TTup => args.iter().map(|x| x.get_free()).flatten().collect(),
             },
-            _ => panic!("Getting free of polytype"),
+            TPoly(args, t) => t
+                .get_free()
+                .relative_complement(args.clone().into_iter().collect()),
         }
     }
 }
@@ -115,7 +117,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
     }
 
     pub fn new(prog: &'b [Def<'a>]) -> Result<TypeEnv<'a, 'b>, String> {
-        let mut tenv = TypeEnv {
+        let mut res = TypeEnv {
             var_env: im::HashMap::new(),
             metas: im::HashMap::new(),
             n: 0,
@@ -126,12 +128,13 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         let groups = scc::scc(prog);
 
         for group in groups.iter() {
-            let start = tenv.n;
+            let start = res.n;
             let mut free_vars: im::HashMap<String, Vec<&'b Expr<'a>>> = im::HashMap::new();
 
-            // preprocess functions
+            // preprocess functions and register functions
             for def in group.iter() {
                 let Def::FuncDef(f, args, body) = def;
+                res.get(f);
 
                 // bring functions into scope
                 if let Expr::EId(s) = f {
@@ -151,6 +154,8 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     free_vars.insert(s.clone(), free.into_iter().collect());
                 }
             }
+
+            let mut tenv = res.clone();
 
             for def in group.iter() {
                 let Def::FuncDef(f, args, body) = def;
@@ -175,38 +180,47 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 let mut funtype: Vec<Type> = args.iter().map(|x| tenv.get(x)).collect();
                 funtype.push(tenv.get(body));
 
-                // instantiate as monomorphic function
                 tenv.unify(f_typ, TApp(TArrow, funtype), start)?;
                 tenv.infer_type(body, sc.clone(), &free_vars, start)?;
             }
 
-            for Def::FuncDef(f, _, _) in group.iter() {
-                // generalize
+            for def in group.iter() {
+                let Def::FuncDef(f, _, _) = def;
+                let f_t = res.get(f);
+
                 if let Expr::EId(_) = f {
-                    let ty = tenv.get(f);
-                    let ty = tenv.generalize(ty);
-                    let n = tenv.var_env.get(&ExprPtr(f)).unwrap();
-                    tenv.metas.insert(*n, ty);
+                    let gen_t = res.generalize(tenv.get(f));
+                    res.unify(f_t, gen_t, start)?;
+                } else {
+                    res.unify(f_t, tenv.get(f), start)?;
                 }
             }
+
+            res.n = tenv.n;
         }
 
         if PRINT {
-            for (e, i) in tenv.var_env.iter() {
+            for (e, i) in res.var_env.iter() {
                 eprintln!(
                     "{:?}\n  == \x1b[32m{:?}\x1b[0m\n",
                     e.0,
-                    tenv.metas.get(i).unwrap()
+                    res.metas.get(i).unwrap()
                 );
             }
         }
 
-        Ok(tenv)
+        Ok(res)
     }
 
-    fn unify(&mut self, t1: Type, t2: Type, start: usize) -> Result<(), String> {
+    fn unify(
+        &mut self,
+        t1: Type,
+        t2: Type,
+        start: usize,
+    ) -> Result<im::HashMap<usize, Type>, String> {
+        // eprintln!("UNIFY: {:?}, {:?}", t1, t2);
         if t1 == t2 {
-            return Ok(());
+            return Ok(im::hashmap! {});
         }
 
         match (t1, t2) {
@@ -223,37 +237,42 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                         subst(
                             self.metas.get(&i).unwrap().clone(),
                             im::hashmap! {
-                                &texpr => other.clone()
+                                mid => other.clone()
                             },
                         ),
                     );
                 }
-                self.metas.insert(mid, other);
+                self.metas.insert(mid, other.clone());
+
+                Ok(im::hashmap! {
+                    mid => other
+                })
             }
             (TApp(c1, arg1), TApp(c2, arg2)) => match (c1, c2) {
-                (TNum, TNum) | (TBool, TBool) => {}
-                (TArrow, TArrow) => {
+                (TNum, TNum) | (TBool, TBool) => Ok(im::HashMap::new()),
+                (TArrow, TArrow) | (TTup, TTup) => {
                     if arg1.len() != arg2.len() {
                         return Err("Type inference conflict".to_string());
                     }
+
+                    let mut res = im::HashMap::new();
                     for i in 0..arg1.len() {
-                        self.unify(arg1[i].clone(), arg2[i].clone(), start)?
+                        res = self
+                            .unify(
+                                subst(arg1[i].clone(), res.clone()),
+                                subst(arg2[i].clone(), res.clone()),
+                                start,
+                            )?
+                            .union(res);
+                        // BROKEN
                     }
-                }
-                (TTup, TTup) => {
-                    if arg1.len() != arg2.len() {
-                        return Err("Type inference conflict".to_string());
-                    }
-                    for i in 0..arg1.len() {
-                        self.unify(arg1[i].clone(), arg2[i].clone(), start)?
-                    }
+
+                    Ok(res)
                 }
                 _ => return Err("Type inference conflict".to_string()),
             },
             _ => return Err("Type inference conflict".to_string()),
         }
-
-        Ok(())
     }
 
     fn infer_type(
@@ -315,11 +334,6 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     self.unify(x_t, gen_t, start)?;
                     sc.insert(x.get_str().unwrap(), x);
                 }
-
-                for (t, v) in self.var_env.iter() {
-                    eprintln!("  {:?}: {:?}\n", t, v);
-                }
-                eprintln!("META: {:?}\n\n", self.metas);
 
                 self.infer_type(body, sc, free, start)?
             }
@@ -398,11 +412,13 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             TPoly(args, t) => {
                 let mut dict = im::HashMap::new();
                 for a in args.iter() {
-                    let meta = TMeta(self.n);
-                    self.metas.insert(self.n, meta.clone());
-                    self.n += 1;
+                    if let TMeta(n) = a {
+                        let meta = TMeta(self.n);
+                        self.metas.insert(self.n, meta.clone());
+                        self.n += 1;
 
-                    dict.insert(a, meta);
+                        dict.insert(*n, meta);
+                    }
                 }
 
                 subst(*t, dict)
@@ -412,9 +428,9 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
     }
 }
 
-fn subst(e: Type, dict: im::HashMap<&Type, Type>) -> Type {
+fn subst(e: Type, dict: im::HashMap<usize, Type>) -> Type {
     match e {
-        TMeta(_) => match dict.get(&e) {
+        TMeta(n) => match dict.get(&n) {
             Some(res) => res.clone(),
             None => e,
         },
@@ -430,7 +446,7 @@ fn subst(e: Type, dict: im::HashMap<&Type, Type>) -> Type {
                 args.into_iter().map(|x| subst(x, dict.clone())).collect(),
             ),
         },
-        TPoly(_, t) => subst(*t, dict),
+        TPoly(vars, t) => TPoly(vars, Box::new(subst(*t, dict))),
     }
 }
 

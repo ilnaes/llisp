@@ -1,13 +1,11 @@
 use crate::backend::llvm::VType;
 use crate::expr::expr::*;
 use im;
-use std::collections::{HashMap, HashSet};
-use std::iter::Extend;
 use std::ptr;
 
 mod scc;
 
-const PRINT: bool = false;
+const PRINT: bool = true;
 
 // a pointer equality version of &'b Expr<'a>
 #[derive(Debug, Clone, Hash)]
@@ -32,7 +30,6 @@ pub enum TypeCons {
 pub enum Type {
     TApp(TypeCons, Vec<Type>),
     TMeta(usize),
-    TVar(usize),
     TPoly(Vec<Type>, Box<Type>),
 }
 
@@ -45,7 +42,7 @@ impl std::fmt::Debug for Type {
 impl Type {
     fn to_string(&self) -> String {
         match self {
-            TMeta(n) => format!("M({})", n),
+            TMeta(n) => format!("t{}", n),
             TApp(cons, args) => match cons {
                 TNum => "Num".to_string(),
                 TBool => "Bool".to_string(),
@@ -56,16 +53,16 @@ impl Type {
                 }
                 TTup => format!("{:?}", args),
             },
-            _ => panic!(),
+            TPoly(vars, t) => format!("∀{:?}.{:?}", vars, t),
         }
     }
 
-    pub fn get_free_t(&self) -> Vec<&Type> {
+    pub fn get_free(&self) -> im::HashSet<Type> {
         match self {
-            TMeta(_) => vec![self],
+            TMeta(_) => im::hashset![self.clone()],
             TApp(cons, args) => match cons {
-                TNum | TBool => Vec::new(),
-                TArrow | TTup => args.iter().map(|x| x.get_free_t()).flatten().collect(),
+                TNum | TBool => im::HashSet::new(),
+                TArrow | TTup => args.iter().map(|x| x.get_free()).flatten().collect(),
             },
             _ => panic!("Getting free of polytype"),
         }
@@ -75,18 +72,24 @@ impl Type {
 use Type::*;
 use TypeCons::*;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct TypeEnv<'a, 'b> {
-    var_env: HashMap<ExprPtr<'a, 'b>, usize>,
-    metas: Vec<Type>,
+    var_env: im::HashMap<ExprPtr<'a, 'b>, usize>,
+    metas: im::HashMap<usize, Type>,
     n: usize,
-    m: usize,
 }
 
 impl<'a, 'b> TypeEnv<'a, 'b> {
+    fn get_free(&self) -> im::HashSet<Type> {
+        self.var_env
+            .iter()
+            .map(|(_, x)| self.metas.get(x).unwrap().clone())
+            .collect()
+    }
+
     pub fn get_vtype(&self, e: &'b Expr<'a>) -> Result<VType, String> {
         match self.var_env.get(&ExprPtr(e)) {
-            Some(n) => type_to_vtype(&self.metas[*n]),
+            Some(n) => type_to_vtype(self.metas.get(n).unwrap()),
             None => Err(format!("Unbound type during compile: {:?}\n", e)),
         }
     }
@@ -95,14 +98,14 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
     // if not seen before, creates a new metavariable
     fn get(&mut self, e: &'b Expr<'a>) -> Type {
         match e {
-            Expr::ENum(_) => TApp(TNum, vec![]),
-            Expr::EBool(_) => TApp(TBool, vec![]),
+            Expr::ENum(_) => TApp(TNum, Vec::new()),
+            Expr::EBool(_) => TApp(TBool, Vec::new()),
             Expr::ETup(vars) => TApp(TTup, vars.into_iter().map(|x| self.get(x)).collect()),
             _ => match self.var_env.get(&ExprPtr(e)) {
-                Some(ty) => self.metas[*ty].clone(),
+                Some(ty) => self.metas.get(ty).unwrap().clone(),
                 None => {
                     let meta = TMeta(self.n);
-                    self.metas.push(meta.clone());
+                    self.metas.insert(self.n, meta.clone());
                     self.var_env.insert(ExprPtr(e), self.n);
                     self.n += 1;
                     meta
@@ -113,21 +116,14 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
 
     pub fn new(prog: &'b [Def<'a>]) -> Result<TypeEnv<'a, 'b>, String> {
         let mut tenv = TypeEnv {
-            var_env: HashMap::new(),
-            metas: Vec::new(),
+            var_env: im::HashMap::new(),
+            metas: im::HashMap::new(),
             n: 0,
-            m: 0,
         };
         let mut scope: im::HashMap<String, &'b Expr<'a>> = im::HashMap::new();
 
         // decompose into SCC of mutually recursive functions
         let groups = scc::scc(prog);
-
-        if PRINT {
-            for g in groups.iter() {
-                eprintln!("{:?}\n\n", g);
-            }
-        }
 
         for group in groups.iter() {
             let start = tenv.n;
@@ -156,8 +152,6 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 }
             }
 
-            // let mut eqns: HashSet<(Type, Type)> = HashSet::new();
-
             for def in group.iter() {
                 let Def::FuncDef(f, args, body) = def;
                 let mut sc = scope.clone();
@@ -166,13 +160,6 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 for a in args.iter() {
                     sc.insert(a.get_str().unwrap(), a);
                 }
-
-                let f_typ = tenv.get(f);
-                let mut funtype: Vec<Type> = args.iter().map(|x| tenv.get(x)).collect();
-                funtype.push(tenv.get(body));
-
-                // instantiate as monomorphic function
-                tenv.unify(f_typ, TApp(TArrow, funtype), start)?;
 
                 // bring free variables into scope
                 if let Expr::ELambda(_, _, _) = f {
@@ -184,24 +171,33 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     }
                 }
 
-                tenv.extract_type(body, sc.clone(), &free_vars, start)?;
-            }
+                let f_typ = tenv.get(f);
+                let mut funtype: Vec<Type> = args.iter().map(|x| tenv.get(x)).collect();
+                funtype.push(tenv.get(body));
 
-            // let eqns: Vec<(Type, Type)> = eqns.into_iter().collect();
-            // tenv.unify_eqns(eqns)?;
+                // instantiate as monomorphic function
+                tenv.unify(f_typ, TApp(TArrow, funtype), start)?;
+                tenv.infer_type(body, sc.clone(), &free_vars, start)?;
+            }
 
             for Def::FuncDef(f, _, _) in group.iter() {
                 // generalize
-                let ty = tenv.get(f);
-                let ty = tenv.generalize(ty);
-                let n = tenv.var_env.get(&ExprPtr(f)).unwrap();
-                tenv.metas[*n] = ty;
+                if let Expr::EId(_) = f {
+                    let ty = tenv.get(f);
+                    let ty = tenv.generalize(ty);
+                    let n = tenv.var_env.get(&ExprPtr(f)).unwrap();
+                    tenv.metas.insert(*n, ty);
+                }
             }
         }
 
         if PRINT {
             for (e, i) in tenv.var_env.iter() {
-                eprintln!("{:?}\n  == \x1b[32m{:?}\x1b[0m\n", e.0, tenv.metas[*i]);
+                eprintln!(
+                    "{:?}\n  == \x1b[32m{:?}\x1b[0m\n",
+                    e.0,
+                    tenv.metas.get(i).unwrap()
+                );
             }
         }
 
@@ -222,9 +218,17 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 }
 
                 for i in start..self.metas.len() {
-                    self.metas[i] = subst(self.metas[i].clone(), &texpr, other.clone())
+                    self.metas.insert(
+                        i,
+                        subst(
+                            self.metas.get(&i).unwrap().clone(),
+                            im::hashmap! {
+                                &texpr => other.clone()
+                            },
+                        ),
+                    );
                 }
-                self.metas[mid] = other
+                self.metas.insert(mid, other);
             }
             (TApp(c1, arg1), TApp(c2, arg2)) => match (c1, c2) {
                 (TNum, TNum) | (TBool, TBool) => {}
@@ -252,7 +256,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         Ok(())
     }
 
-    fn extract_type(
+    fn infer_type(
         &mut self,
         e: &'b Expr<'a>,
         scope: im::HashMap<String, &'b Expr<'a>>, // pointer to where ident was bound
@@ -265,7 +269,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             Expr::ETup(arg) => {
                 let mut tup = vec![];
                 for a in arg.iter() {
-                    tup.push(self.extract_type(a, scope.clone(), free, start)?);
+                    tup.push(self.infer_type(a, scope.clone(), free, start)?);
                 }
 
                 TApp(TTup, tup)
@@ -274,29 +278,29 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 let typ = self.get(*scope.get(&s.to_string()).unwrap());
                 self.instantiate(typ)
             }
-            Expr::EPrint(expr) => self.extract_type(expr, scope.clone(), free, start)?,
+            Expr::EPrint(expr) => self.infer_type(expr, scope.clone(), free, start)?,
             Expr::EIf(cond, e1, e2) => {
-                let cond_t = self.extract_type(cond, scope.clone(), free, start)?;
+                let cond_t = self.infer_type(cond, scope.clone(), free, start)?;
                 self.unify(cond_t, TApp(TBool, vec![]), start)?;
 
-                let e1_t = self.extract_type(e1, scope.clone(), free, start)?;
-                let e2_t = self.extract_type(e2, scope.clone(), free, start)?;
+                let e1_t = self.infer_type(e1, scope.clone(), free, start)?;
+                let e2_t = self.infer_type(e2, scope.clone(), free, start)?;
                 self.unify(e1_t.clone(), e2_t, start)?;
 
                 e1_t
             }
-            Expr::EPrim2(op, e1, e2) => self.extract_prim2(e, op, e1, e2, scope, free, start)?,
+            Expr::EPrim2(op, e1, e2) => self.infer_prim2(e, op, e1, e2, scope, free, start)?,
             Expr::EApp(f, arg) => {
                 let mut arg_vec = vec![];
                 for a in arg.iter() {
-                    let a_t = self.extract_type(a, scope.clone(), free, start)?;
+                    let a_t = self.infer_type(a, scope.clone(), free, start)?;
                     arg_vec.push(a_t);
                 }
 
                 let typ = self.get(e);
                 arg_vec.push(typ.clone());
 
-                let f_t = self.extract_type(f, scope, free, start)?;
+                let f_t = self.infer_type(f, scope, free, start)?;
                 self.unify(f_t, TApp(TArrow, arg_vec), start)?;
                 self.get(e)
             }
@@ -304,15 +308,20 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 let mut sc = scope.clone();
                 for Binding(x, exp) in bind {
                     let x_t = self.get(x);
-                    let exp_t = self.extract_type(exp, scope.clone(), free, start)?;
-                    let gen_t = self.generalize(exp_t);
+                    let exp_t = self.infer_type(exp, scope.clone(), free, start)?;
 
                     // let polymorphism
+                    let gen_t = self.generalize(exp_t);
                     self.unify(x_t, gen_t, start)?;
                     sc.insert(x.get_str().unwrap(), x);
                 }
 
-                self.extract_type(body, sc, free, start)?
+                for (t, v) in self.var_env.iter() {
+                    eprintln!("  {:?}: {:?}\n", t, v);
+                }
+                eprintln!("META: {:?}\n\n", self.metas);
+
+                self.infer_type(body, sc, free, start)?
             }
             Expr::ELambda(s, _, _) => {
                 match free.get(s) {
@@ -335,7 +344,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         Ok(res)
     }
 
-    fn extract_prim2(
+    fn infer_prim2(
         &mut self,
         e: &'b Expr<'a>,
         op: &'b Prim2,
@@ -345,8 +354,8 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         free: &im::HashMap<String, Vec<&'b Expr<'a>>>,
         start: usize,
     ) -> Result<Type, String> {
-        let e1_t = self.extract_type(e1, scope.clone(), free, start)?;
-        let e2_t = self.extract_type(e2, scope.clone(), free, start)?;
+        let e1_t = self.infer_type(e1, scope.clone(), free, start)?;
+        let e2_t = self.infer_type(e2, scope.clone(), free, start)?;
 
         match op {
             Prim2::Add | Prim2::Minus | Prim2::Times => {
@@ -375,49 +384,58 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
     }
 
     fn generalize(&mut self, t: Type) -> Type {
-        t
+        let vars = t
+            .get_free()
+            .relative_complement(self.get_free())
+            .into_iter()
+            .collect();
+
+        TPoly(vars, Box::new(t))
     }
 
     fn instantiate(&mut self, t: Type) -> Type {
         match t {
-            TPoly(_, _) => panic!(),
+            TPoly(args, t) => {
+                let mut dict = im::HashMap::new();
+                for a in args.iter() {
+                    let meta = TMeta(self.n);
+                    self.metas.insert(self.n, meta.clone());
+                    self.n += 1;
+
+                    dict.insert(a, meta);
+                }
+
+                subst(*t, dict)
+            }
             _ => t,
         }
     }
 }
 
-fn subst<'a, 'b>(e: Type, from: &Type, to: Type) -> Type {
+fn subst(e: Type, dict: im::HashMap<&Type, Type>) -> Type {
     match e {
-        TMeta(_) => {
-            if from == &e {
-                to
-            } else {
-                e
-            }
-        }
+        TMeta(_) => match dict.get(&e) {
+            Some(res) => res.clone(),
+            None => e,
+        },
         TApp(con, args) => match con {
             TNum => TApp(TNum, vec![]),
             TBool => TApp(TBool, vec![]),
             TTup => TApp(
                 TTup,
-                args.into_iter()
-                    .map(|x| subst(x, from, to.clone()))
-                    .collect(),
+                args.into_iter().map(|x| subst(x, dict.clone())).collect(),
             ),
             TArrow => TApp(
                 TArrow,
-                args.into_iter()
-                    .map(|x| subst(x, from, to.clone()))
-                    .collect(),
+                args.into_iter().map(|x| subst(x, dict.clone())).collect(),
             ),
         },
-        TPoly(_, t) => subst(*t, from, to),
-        TVar(_) => e,
+        TPoly(_, t) => subst(*t, dict),
     }
 }
 
 // ty1 will be a metavariable
-fn occurs<'a, 'b>(ty1: &Type, ty2: &Type, top: bool) -> bool {
+fn occurs(ty1: &Type, ty2: &Type, top: bool) -> bool {
     match ty2 {
         TMeta(_) => {
             if top {
@@ -435,7 +453,6 @@ fn occurs<'a, 'b>(ty1: &Type, ty2: &Type, top: bool) -> bool {
             false
         }
         TPoly(_, ty) => occurs(ty1, ty, false),
-        TVar(_) => false,
     }
 }
 
@@ -505,6 +522,6 @@ fn type_to_vtype(typ: &Type) -> Result<VType, String> {
             }
         },
         TPoly(_, t) => type_to_vtype(t),
-        TMeta(_) | TVar(_) => Err(format!("Compile error: Unbound type")),
+        TMeta(_) => Err(format!("Compile error: Unbound type")),
     }
 }

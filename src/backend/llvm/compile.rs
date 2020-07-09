@@ -1,6 +1,6 @@
 use super::scope::*;
 use super::*;
-use crate::backend::llvm::FunDef;
+use crate::backend::llvm::{nary_func, FunDef};
 use crate::expr::expr::*;
 use crate::types::{get_free, TypeEnv};
 use im;
@@ -96,6 +96,7 @@ pub fn compile_prog<'a, 'b>(
         }
 
         for (f, present) in globals {
+            // package all called functions
             if !present {
                 continue;
             }
@@ -332,7 +333,7 @@ fn compile_expr<'a, 'b>(
 
             arg_vec.push(v1.clone());
 
-            let typ = typenv.get_vtype(func).unwrap();
+            let typ = nary_func(args.len() + 1);
 
             is1.append(&mut vec![
                 Inst::IInttoptr(
@@ -347,7 +348,7 @@ fn compile_expr<'a, 'b>(
             ]);
             (is1, res, all1)
         }
-        Expr::ELambda(f, _, _) => {
+        Expr::ELambda(f, args, _) => {
             let mut insts = Vec::new();
             let mut free = im::HashSet::new();
             get_free(expr, im::HashSet::new(), &mut free);
@@ -361,7 +362,7 @@ fn compile_expr<'a, 'b>(
             let ptr = gen.sym_arg(true);
             let val = gen.sym_arg(true);
 
-            let typ = typenv.get_vtype(expr).unwrap();
+            let typ = nary_func(args.len() + 1);
 
             insts.append(&mut vec![
                 Inst::ICall(

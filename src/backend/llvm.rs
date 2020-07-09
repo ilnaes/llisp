@@ -63,6 +63,14 @@ pub struct FunDef {
     pub inst: Vec<Inst>,
 }
 
+pub fn nary_func(n: usize) -> VType {
+    let mut args = Vec::new();
+    for _ in 0..n {
+        args.push(VType::I64);
+    }
+    VType::Func(args, Box::new(VType::I64))
+}
+
 pub fn typ_to_ll(t: &VType) -> String {
     match t {
         VType::I1 => String::from("i1"),

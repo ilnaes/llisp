@@ -5,7 +5,7 @@ use std::ptr;
 
 mod scc;
 
-const PRINT: bool = true;
+const PRINT: bool = false;
 
 // a pointer equality version of &'b Expr<'a>
 #[derive(Debug, Clone, Hash)]
@@ -143,7 +143,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     scope.insert(s.clone(), f);
 
                     // collect references to free variables in bodies of lambdas
-                    let mut free: im::HashSet<&'b Expr<'a>> = im::HashSet::new();
+                    let mut free: Vec<&'b Expr<'a>> = Vec::new();
                     let mut sc: im::HashSet<String> = scope.keys().collect();
                     for a in args.iter() {
                         sc.insert(a.get_str().unwrap());
@@ -168,7 +168,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
 
                 // bring free variables into scope
                 if let Expr::ELambda(_, _, _) = f {
-                    let mut free: im::HashSet<&'b Expr<'a>> = im::HashSet::new();
+                    let mut free: Vec<&'b Expr<'a>> = Vec::new();
                     get_free(f, im::HashSet::new(), &mut free);
 
                     for var in free {
@@ -176,12 +176,25 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     }
                 }
 
+                let res_t = tenv.infer_type(body, sc.clone(), &free_vars, start)?;
+
                 let f_typ = tenv.get(f);
+
                 let mut funtype: Vec<Type> = args.iter().map(|x| tenv.get(x)).collect();
-                funtype.push(tenv.get(body));
+                funtype.push(res_t);
 
                 tenv.unify(f_typ, TApp(TArrow, funtype), start)?;
-                tenv.infer_type(body, sc.clone(), &free_vars, start)?;
+
+                // if PRINT {
+                //     for (e, i) in tenv.var_env.iter() {
+                //         eprintln!(
+                //             "{:?}, {:?}\n  == \x1b[32m{:?}\x1b[0m\n",
+                //             e.0,
+                //             i,
+                //             tenv.metas.get(i).unwrap()
+                //         );
+                //     }
+                // }
             }
 
             for def in group.iter() {
@@ -189,6 +202,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 let f_t = res.get(f);
 
                 if let Expr::EId(_) = f {
+                    // generalize functions
                     let gen_t = res.generalize(tenv.get(f));
                     res.unify(f_t, gen_t, start)?;
                 } else {
@@ -217,7 +231,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         t1: Type,
         t2: Type,
         start: usize,
-    ) -> Result<im::HashMap<usize, Type>, String> {
+    ) -> Result<im::HashMap<Type, Type>, String> {
         // eprintln!("UNIFY: {:?}, {:?}", t1, t2);
         if t1 == t2 {
             return Ok(im::hashmap! {});
@@ -231,22 +245,18 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     return Err("Type inference: occurs check".to_string());
                 }
 
-                for i in start..self.metas.len() {
-                    self.metas.insert(
-                        i,
-                        subst(
-                            self.metas.get(&i).unwrap().clone(),
-                            im::hashmap! {
-                                mid => other.clone()
-                            },
-                        ),
-                    );
+                let mut res = im::HashMap::new();
+                res.insert(texpr, other.clone());
+
+                for i in start..self.n {
+                    if self.metas.contains_key(&i) {
+                        self.metas
+                            .insert(i, subst(self.metas.get(&i).unwrap().clone(), res.clone()));
+                    }
                 }
                 self.metas.insert(mid, other.clone());
 
-                Ok(im::hashmap! {
-                    mid => other
-                })
+                Ok(res)
             }
             (TApp(c1, arg1), TApp(c2, arg2)) => match (c1, c2) {
                 (TNum, TNum) | (TBool, TBool) => Ok(im::HashMap::new()),
@@ -264,7 +274,6 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                                 start,
                             )?
                             .union(res);
-                        // BROKEN
                     }
 
                     Ok(res)
@@ -310,6 +319,8 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             }
             Expr::EPrim2(op, e1, e2) => self.infer_prim2(e, op, e1, e2, scope, free, start)?,
             Expr::EApp(f, arg) => {
+                let f_t = self.infer_type(f, scope.clone(), free, start)?;
+
                 let mut arg_vec = vec![];
                 for a in arg.iter() {
                     let a_t = self.infer_type(a, scope.clone(), free, start)?;
@@ -319,7 +330,6 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                 let typ = self.get(e);
                 arg_vec.push(typ.clone());
 
-                let f_t = self.infer_type(f, scope, free, start)?;
                 self.unify(f_t, TApp(TArrow, arg_vec), start)?;
                 self.get(e)
             }
@@ -412,13 +422,11 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             TPoly(args, t) => {
                 let mut dict = im::HashMap::new();
                 for a in args.iter() {
-                    if let TMeta(n) = a {
-                        let meta = TMeta(self.n);
-                        self.metas.insert(self.n, meta.clone());
-                        self.n += 1;
+                    let meta = TMeta(self.n);
+                    self.metas.insert(self.n, meta.clone());
+                    self.n += 1;
 
-                        dict.insert(*n, meta);
-                    }
+                    dict.insert(a.clone(), meta);
                 }
 
                 subst(*t, dict)
@@ -428,9 +436,9 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
     }
 }
 
-fn subst(e: Type, dict: im::HashMap<usize, Type>) -> Type {
+fn subst(e: Type, dict: im::HashMap<Type, Type>) -> Type {
     match e {
-        TMeta(n) => match dict.get(&n) {
+        TMeta(_) => match dict.get(&e) {
             Some(res) => res.clone(),
             None => e,
         },
@@ -446,7 +454,13 @@ fn subst(e: Type, dict: im::HashMap<usize, Type>) -> Type {
                 args.into_iter().map(|x| subst(x, dict.clone())).collect(),
             ),
         },
-        TPoly(vars, t) => TPoly(vars, Box::new(subst(*t, dict))),
+        TPoly(vars, t) => {
+            let mut ndict = dict.clone();
+            for v in vars.iter() {
+                ndict.remove(v);
+            }
+            TPoly(vars, Box::new(subst(*t, ndict)))
+        }
     }
 }
 
@@ -476,13 +490,18 @@ fn occurs(ty1: &Type, ty2: &Type, top: bool) -> bool {
 pub fn get_free<'a, 'b>(
     expr: &'b Expr<'a>,
     mut scope: im::HashSet<String>,
-    res: &mut im::HashSet<&'b Expr<'a>>,
+    res: &mut Vec<&'b Expr<'a>>,
 ) {
     match expr {
         Expr::ENum(_) | Expr::EBool(_) => {}
         Expr::EId(s) => {
             if !scope.contains(&s.to_string()) {
-                res.insert(expr);
+                for v in res.iter() {
+                    if *v == expr {
+                        return;
+                    }
+                }
+                res.push(expr);
             }
         }
         Expr::EPrint(e) => get_free(e, scope, res),

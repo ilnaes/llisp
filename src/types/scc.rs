@@ -119,7 +119,7 @@ fn build_graph<'a, 'b>(
                 }
             }
 
-            let mut free = im::HashSet::new();
+            let mut free = Vec::new();
             get_free(e, im::HashSet::new(), &mut free);
             if free.len() > 0 {
                 graph.add_edge(*node_idx.get(e).unwrap(), *node_idx.get(src).unwrap(), ());

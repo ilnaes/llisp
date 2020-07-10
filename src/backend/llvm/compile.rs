@@ -61,7 +61,7 @@ pub fn compile_prog<'a, 'b>(
         if let Expr::ELambda(_, _, _) = f {
             arg_vec.push("self".to_string());
 
-            let mut free: im::HashSet<&'b Expr<'a>> = im::HashSet::new();
+            let mut free: Vec<&'b Expr<'a>> = Vec::new();
             get_free(f, im::HashSet::new(), &mut free);
 
             let free: Vec<&'b Expr<'a>> = free.into_iter().collect();
@@ -350,7 +350,7 @@ fn compile_expr<'a, 'b>(
         }
         Expr::ELambda(f, args, _) => {
             let mut insts = Vec::new();
-            let mut free = im::HashSet::new();
+            let mut free = Vec::new();
             get_free(expr, im::HashSet::new(), &mut free);
 
             let free = free

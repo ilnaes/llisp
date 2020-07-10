@@ -7,6 +7,8 @@ ifeq ($(UNAME), Darwin)
 endif
 endif
 
+.SECONDARY: output/test.ll
+
 main: $(shell find src -name "*.rs")
 	cargo build
 	cp target/debug/llisp main

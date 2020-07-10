@@ -100,6 +100,8 @@ run_tests! {
 
     clos1: ("(defn add (x) (lambda (y) (+ x y))) (defn our_main () (let ((f (add 1))) (f 2)))", Runs("3")),
     clos2: ("(defn double (f) (lambda (x) (+ (f x) (f x)))) (defn our_main () ((double (lambda (x) (+ x 3))) 1))", Runs("8")),
+
+    poly1: ("(defn f (x) x) (defn our_main () (if (f true) (f 2) (f 1)))", Runs("2")),
 }
 
 macro_rules! run_wrap_tests {
@@ -155,4 +157,6 @@ run_wrap_tests! {
     clos_err: ("((lambda (x) (+ x 1)) true)", ErrC("Type inference")),
 
     tup1: ("(tup 1 true)", Runs("( 1, true )")),
+
+    wrap_poly1: ("(let ((f (lambda (x) x))) (if (f true) (f 1) (f 2)))", Runs("1")),
 }

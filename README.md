@@ -1,6 +1,6 @@
 # llisp
 
-A lisp-like language written in Rust.  WIP.
+A lisp-like language written in Rust.  Implements type inference and polymorphic functions.  WIP.
 
 A program like
 
@@ -56,19 +56,3 @@ define i64 @our_main() {
 }
 ```
 (_n.b._ integer values are tagged so their representations are different in the compiled version)
-
-Supported + Wish list:
-
-- [x] Basic primitive operations
-- [x] Let bindings
-- [x] Functions and function calls
-- [x] Type inference
-- [x] Closures
-- [ ] Polymorphic functions
-- [ ] Lists
-- [ ] Type definitions
-- [ ] Function currying
-- [ ] Fixed-point combinator
-- [ ] Strings
-- [ ] Memory management
-- [ ] Macros
